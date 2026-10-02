@@ -4,6 +4,7 @@ import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { addNoindex } from '../apply-pages-noindex.mjs';
 
 /** The one section of an evidence document whose table rows must each name a source commit. */
 const CAPTURE_RECORDS_HEADING = '## Capture records';
@@ -90,6 +91,30 @@ function assertFallbackPublished(dist) {
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
+
+test('noindex targets effective head metadata, not markup-looking source text', async () => {
+  const source = '<html><head><!-- <meta name="robots" content="index"> --><script>const fake = \'<meta name="robots" content="index">\';</script></head><body><meta name=robots content=index></body></html>';
+  const built = addNoindex(source, 'index.html');
+  const head = built.slice(built.indexOf('<head>'), built.indexOf('</head>'));
+  const body = built.slice(built.indexOf('<body>'));
+  assert.match(head, /<meta name="robots" content="noindex">/);
+  assert.match(head, /<!-- <meta name="robots" content="index"> -->/);
+  assert.match(head, /const fake = '<meta name="robots" content="index">'/);
+  assert.match(body, /<meta name=robots content=index>/);
+
+  const unquoted = addNoindex('<html><head><meta name=robots content=index></head></html>', 'unquoted.html');
+  assert.match(unquoted, /<meta name=robots content=noindex>/);
+
+  const scratch = await mkdtemp(join(tmpdir(), 'ding-pbx-noindex-parser-'));
+  try {
+    await writeFile(join(scratch, 'index.html'), built, 'utf8');
+    const verifier = join(root, 'verify_pages_noindex.py');
+    const pythonArgs = process.platform === 'win32' ? ['-3', verifier, scratch] : [verifier, scratch];
+    execFileSync(process.platform === 'win32' ? 'py' : 'python3', pythonArgs, { stdio: 'pipe' });
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
 
 test('declares responsive and Open Graph metadata', () => {
   assert.match(html, /<meta name="viewport"/);

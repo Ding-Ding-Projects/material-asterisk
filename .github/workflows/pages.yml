@@ -57,6 +57,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Test-Path -LiteralPath 'console/site/dist/index.html')) { throw 'compose-site did not create console/site/dist/index.html' }
           if (-not (Test-Path -LiteralPath 'console/site/dist/build-manifest.json')) { throw 'compose-site did not create console/site/dist/build-manifest.json' }
+      - name: Independently verify search-index directives
+        shell: powershell
+        run: |
+          py -3 console/site/verify_pages_noindex.py --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          py -3 console/site/verify_pages_noindex.py console/site/dist
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
