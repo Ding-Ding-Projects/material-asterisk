@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyNoindexToSite } from './apply-pages-noindex.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const docs = resolve(root, '..', 'docs');
@@ -545,6 +546,8 @@ async function rewritePublishedIdentity(relative = '.') {
   }
 }
 await rewritePublishedIdentity();
+const noindexResult = await applyNoindexToSite(output);
+console.log(`Noindex verified across ${noindexResult.htmlFiles} published HTML file(s); normalized ${noindexResult.updated}.`);
 
 const files = [];
 async function record(relative) {
