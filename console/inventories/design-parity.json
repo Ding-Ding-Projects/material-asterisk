@@ -1,5 +1,11 @@
 {
   "schemaVersion": 1,
+  "repairVerification": {
+    "date": "2026-10-05",
+    "surfaces": ["servers", "notifications", "history", "onboardOpen", "sureOpen", "infoOpen"],
+    "status": "native-unverified",
+    "note": "Onboarding preservation, secret-free receipts, and transient credential cleanup have local regression coverage. Existing captures do not verify these repairs; no new native capture or parity result is claimed."
+  },
   "sourceArchive": {
     "sha256": "9A4284745A745C18A18B0A23D2A2F5851A79F9B6EFCBC5EE30EDCD69CEA2863F",
     "verification": "independent-authoritative-audit"

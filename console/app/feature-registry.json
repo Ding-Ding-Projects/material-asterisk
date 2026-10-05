@@ -703,7 +703,7 @@
     },
     "non-blocking-notifications": {
       "status": "partial",
-      "note": "Exact source seams are recorded in this schema-v2 row. Built interaction, current-commit captures, and design-parity evidence remain not-run, so this row makes no verified claim.",
+      "note": "Onboarding credentials use the dismissible information dialog and are excluded from notification history and automatic narration. Dialog closure clears its content. Focused wiring tests passed; native capture and design parity remain unverified.",
       "implementation": {
         "paths": [],
         "symbols": [
@@ -1549,7 +1549,7 @@
     },
     "local-version-history": {
       "status": "partial",
-      "note": "Exact source seams are recorded in this schema-v2 row. Built interaction, current-commit captures, and design-parity evidence remain not-run, so this row makes no verified claim.",
+      "note": "Successful onboarding writes a credential-free deployment receipt and reports receipt-write failures separately. Target-file recovery uses Configuration backups; restoring a local receipt does not restore the PBX. Packaged acceptance remains unverified.",
       "implementation": {
         "paths": [],
         "symbols": [
@@ -2836,7 +2836,7 @@
     },
     "guided-forms": {
       "status": "partial",
-      "note": "Exact source seams are recorded in this schema-v2 row. Built interaction, current-commit captures, and design-parity evidence remain not-run, so this row makes no verified claim.",
+      "note": "Repeated onboarding preserves existing menu contexts and reports skipped replacement. Target-bound apply and credential-free history receipt have focused regression coverage. Packaged interaction, captures, and design parity remain unverified.",
       "implementation": {
         "paths": [],
         "symbols": [

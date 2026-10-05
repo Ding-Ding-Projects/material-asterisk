@@ -160,7 +160,12 @@ export function buildOnboardPlan(answers: OnboardAnswers, inputs: OnboardPlanInp
     summary.push(`pjsip.conf: add ${count} endpoint, authentication, and AoR trio${count === 1 ? '' : 's'} starting at ${start}`);
   }
 
-  if (answers.menu && count > 0) {
+  if (answers.menu && extensions.some((candidate) => candidate.name === 'onboard-menu')) {
+    skipped.push(
+      'One menu: skipped - the existing [onboard-menu] is preserved. ' +
+        'Edit its routes explicitly in Configure > Dialplan to include the new extensions.',
+    );
+  } else if (answers.menu && count > 0) {
     const menuEntries: Array<{ key: string; value: string }> = [
       { key: 'exten', value: 's,1,Answer()' },
       { key: 'same', value: 'n,Background(welcome)' },

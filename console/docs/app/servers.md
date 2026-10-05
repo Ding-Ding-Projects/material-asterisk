@@ -6,6 +6,14 @@ This screen discovers local targets, verifies the selected target through the co
 
 ## Configuration
 
+### Repeating the deployment wizard
+
+The wizard keeps an existing `onboard-menu` unchanged, even when it is empty or contains custom routes. The confirmation summary explains that creating a replacement menu was skipped. New endpoints can still be added; edit their routes explicitly in Configure > Dialplan.
+
+After a successful apply, Local history receives a receipt containing the target identifier, resource names, and new extension identifiers. It contains no credentials or configuration contents. A failed history write is reported without describing the completed target write as undone. Restore target configuration from Configuration backups; restoring a local receipt does not restore the PBX.
+
+New extension credentials appear once in a dismissible dialog. They are excluded from notification history and automatic narration, and the dialog clears them when closed. Save them securely before dismissing it. Changing the selected target before accepting the plan requires a new review.
+
 ### Route
 
 How this console reaches Asterisk. Everything below reshapes itself around this answer. The selected local target is read from the real discovery result rather than from the design's example names.

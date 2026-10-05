@@ -116,3 +116,29 @@ test('a menu with no extensions is refused rather than shipping an empty auto-at
   assert.ok(!extensions.value.some((s) => s.name === 'onboard-menu'));
   assert.ok(plan.skipped.some((s) => s.startsWith('One menu: skipped')));
 });
+
+test('a second wizard run preserves every existing menu route and reports that it cannot replace the menu', () => {
+  const first = buildOnboardPlan({ intent: 'Deploy a new server', phones: 8, menu: true, tls: false, hardened: false }, EMPTY);
+  const inputs: OnboardPlanInputs = {
+    pjsip: first.documents.find((document) => document.resource.endsWith('pjsip.conf'))!.value,
+    extensions: first.documents.find((document) => document.resource.endsWith('extensions.conf'))!.value,
+    http: [],
+  };
+  const snapshot = structuredClone(inputs);
+  const second = buildOnboardPlan({ intent: 'Deploy a new server', phones: 5, menu: true, tls: false, hardened: false }, inputs);
+
+  assert.deepEqual(second.newExtensions.map((extension) => extension.id), ['108', '109', '110', '111', '112']);
+  assert.deepEqual(second.documents.find((document) => document.resource.endsWith('extensions.conf'))!.value, inputs.extensions);
+  assert.ok(second.skipped.some((line) => /existing.*onboard-menu.*preserved/iu.test(line)));
+  assert.ok(!second.summary.some((line) => /auto-attendant/u.test(line)));
+  assert.deepEqual(inputs, snapshot, 'planning must not mutate any supplied configuration');
+});
+
+test('an existing empty or custom menu is preserved rather than treated as wizard-owned', () => {
+  for (const entries of [[], [{ key: 'include', value: 'custom-context' }]]) {
+    const inputs: OnboardPlanInputs = { ...EMPTY, extensions: [{ name: 'onboard-menu', entries }] };
+    const plan = buildOnboardPlan({ intent: 'Deploy a new server', phones: 1, menu: true, tls: false, hardened: false }, inputs);
+    assert.deepEqual(plan.documents.find((document) => document.resource.endsWith('extensions.conf'))!.value, inputs.extensions);
+    assert.ok(plan.skipped.some((line) => /existing.*onboard-menu.*preserved/iu.test(line)));
+  }
+});

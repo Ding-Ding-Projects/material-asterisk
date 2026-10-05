@@ -1,5 +1,13 @@
 # Ding PBX delivery roadmap
 
+## Onboarding repair verification, 2026-10-05
+
+- [x] Preserve an existing auto-attendant on repeated wizard deployment, with a visible skipped-menu explanation and regression coverage (#12).
+- [x] Record a credential-free deployment receipt, distinguish receipt failure, and keep one-time credentials out of notification history and automatic narration (#11).
+- [x] Release confirmation callbacks and dialog credential content on close; bind the receipt and apply to the reviewed target.
+- [ ] Verify these repairs in the packaged Windows interface and against a real PBX. The passing local tests do not establish that acceptance.
+- [ ] Resolve the separately reproduced baseline renderer failures: nine deep-link wiring and 22 School mode cases.
+
 ## Current release boundary, measured 2026-08-31
 
 This short section records the current facts before the historical checklist below. A checked

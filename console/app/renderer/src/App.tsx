@@ -984,12 +984,24 @@ export class App extends Base {
    * and nothing to search for, arriving whenever somebody first writes the perfectly
    * ordinary `this.setState({...}, () => ...)`. */
   private boundedOverlaySetState = (update: Record<string, unknown>, callback?: () => void): void => {
-    if (typeof update.ctxX === 'string' && typeof update.ctxY === 'string') {
-      const clamped = this.clampOverlayPixelPosition(update.ctxX, update.ctxY, 274, 560);
-      this.baseSetState({ ...update, ctxX: clamped.x, ctxY: clamped.y }, callback);
+    const sanitize = (update: Record<string, unknown> | null): Record<string, unknown> | null => {
+      if (update === null) return null;
+      // Acceptance captures the action before closing; closed overlays must not
+      // retain that callback or any credential-bearing dialog content.
+      if (update.sureOpen === false) update = { ...update, sureAction: null };
+      if (update.infoOpen === false) update = { ...update, infoTitle: '', infoBody: '', infoPlain: '', infoDoc: null, infoKey: '' };
+      if (typeof update.ctxX === 'string' && typeof update.ctxY === 'string') {
+        const clamped = this.clampOverlayPixelPosition(update.ctxX, update.ctxY, 274, 560);
+        update = { ...update, ctxX: clamped.x, ctxY: clamped.y };
+      }
+      return update;
+    };
+    if (typeof update === 'function') {
+      const updater = update as (state: Record<string, unknown>, props: unknown) => Record<string, unknown> | null;
+      this.baseSetState(((state: Record<string, unknown>, props: unknown) => sanitize(updater(state, props))) as never, callback);
       return;
     }
-    this.baseSetState(update, callback);
+    this.baseSetState(sanitize(update)!, callback);
   };
 
   /** `p_start`'s own copy of `set` (the shell's `set(key, value)` is the same generic
@@ -4101,6 +4113,20 @@ What you can do: ${offered}.` : ''}`);
    *  cannot be pressed twice and start two transactions against the same target. */
   private onboardBusy = false;
 
+  /** Credentials use the existing dismissible dialog, without notification storage
+   * or automatic narration. Closing it also clears its credential-bearing state. */
+  private showOnboardCredentials(extensions: ReadonlyArray<{ id: string; secret: string }>): void {
+    if (extensions.length === 0) return;
+    this.setState({ infoDoc: null, infoKey: '' });
+    this.baseShowInfo(
+      'New extension secrets',
+      extensions.map((extension) => `${extension.id}: ${extension.secret}`).join('\n'),
+      'Save these credentials securely before closing this dialog. They are shown once and are not kept in notification history or read aloud automatically.',
+      '20%',
+      '132px',
+    );
+  }
+
   private onboardAnswers(): OnboardAnswers {
     const values = (this.state as { values?: Record<string, unknown> }).values ?? {};
     const intent = values.ob_intent === 'Connect to an existing one' ? 'Connect to an existing one' : 'Deploy a new server';
@@ -4193,17 +4219,19 @@ What you can do: ${offered}.` : ''}`);
       }
     }
 
+    const targetId = this.target.id;
+    const targetLabel = this.target.label;
     const answers = this.onboardAnswers();
-    const inputs = await this.readOnboardInputs(this.target.id);
+    const inputs = await this.readOnboardInputs(targetId);
     const plan = buildOnboardPlan(answers, inputs);
 
     const summaryLines = [
-      `Target: ${this.target.label}`,
+      `Target: ${targetLabel}`,
       ...plan.summary.map((line) => `• ${line}`),
       ...plan.skipped.map((line) => `• ${line}`),
       `Business hours: ${ONBOARD_HOURS_NOTE}`,
       '',
-      'Every file is backed up before it is touched, and this is recorded in local history so it can be restored.',
+      'Changed files are backed up on the target. A secret-free deployment receipt will be recorded in Local history; restore target files from Configuration backups.',
     ].filter((line, i, arr) => line !== '' || arr[i - 1] !== '');
 
     if (plan.summary.length === 0) {
@@ -4222,29 +4250,49 @@ What you can do: ${offered}.` : ''}`);
     this.set('onboardOpen', false);
     this.areYouSure('Apply the deploy plan?', summaryLines.join('\n'), 3, () => {
       if (this.onboardBusy) return;
+      if (!this.target.connected || this.target.id !== targetId) {
+        this.fire('Target changed', 'The connected target changed after the deploy plan was read. Review a new plan before applying.');
+        return;
+      }
       this.onboardBusy = true;
       void (async () => {
         try {
-          const response = await this.request('pbx.apply', { serverId: this.target.id, payload: { documents: plan.documents } });
+          const response = await this.request('pbx.apply', { serverId: targetId, payload: { documents: plan.documents } });
           const result = (response as { data?: { result?: { status: string; message?: string } }; message?: string } | undefined);
           if (!response?.ok) {
             this.fire('Deploy not applied', `${response?.message ?? result?.data?.result?.message ?? 'The target refused the change.'}`);
             return;
           }
-          const secretLines = plan.newExtensions.map((e) => `${e.id}: ${e.secret}`).join('\n');
+          let historyNote = 'The deployment receipt was not recorded in Local history. Target-file recovery is available from Configuration backups.';
+          try {
+            const history = await this.request('local-history.record', {
+              payload: {
+                action: 'updated',
+                subject: 'Onboarding deployment',
+                payload: {
+                  targetId,
+                  resources: plan.documents.map((document) => document.resource),
+                  extensionIds: plan.newExtensions.map((extension) => extension.id),
+                },
+              },
+            });
+            if (history?.ok) historyNote = 'A secret-free deployment receipt was recorded in Local history. Restore target files from Configuration backups.';
+          } catch {
+            // The target write already succeeded. Report the missing receipt separately.
+          }
           this.fire(
             'Deployed',
             [
               `Applied: ${plan.summary.join('; ')}.`,
-              plan.newExtensions.length > 0 ? `New extension secrets (shown once — write these down):\n${secretLines}` : '',
               plan.skipped.length > 0 ? `Not applied: ${plan.skipped.join(' ')}` : '',
-              'Every changed file was backed up first and is in local history if you need to undo this.',
+              historyNote,
             ].filter(Boolean).join('\n\n'),
           );
           this.onUserMutation('onboarding-deploy');
           this.set('onboardOpen', false);
           this.set('screen', 'servers');
           this.set('railId', 'app');
+          this.showOnboardCredentials(plan.newExtensions);
         } finally {
           this.onboardBusy = false;
         }
