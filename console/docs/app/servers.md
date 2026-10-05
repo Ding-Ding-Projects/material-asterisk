@@ -10,6 +10,8 @@ This screen discovers local targets, verifies the selected target through the co
 
 The wizard keeps an existing `onboard-menu` unchanged, even when it is empty or contains custom routes. The confirmation summary explains that creating a replacement menu was skipped. New endpoints can still be added; edit their routes explicitly in Configure > Dialplan.
 
+The wizard prepares a plan only from verified configuration readings. A read failure or malformed response is reported instead of being treated as an empty file. Explicitly absent files remain valid for first deployment. The configuration planner checks the supplied original structured values against the current reading, and the transaction checks every changed resource in the plan again before taking backups or writing. Changed or unreadable resources require a fresh plan. A later staging read error also stops the write instead of rebuilding from empty text; only a missing original file permits first-file creation. This preflight does not lock out independent writers after the check.
+
 After a successful apply, Local history receives a receipt containing the target identifier, resource names, and new extension identifiers. It contains no credentials or configuration contents. A failed history write is reported without describing the completed target write as undone. Restore target configuration from Configuration backups; restoring a local receipt does not restore the PBX.
 
 New extension credentials appear once in a dismissible dialog. They are excluded from notification history and automatic narration, and the dialog clears them when closed. Save them securely before dismissing it. Changing the selected target before accepting the plan requires a new review.

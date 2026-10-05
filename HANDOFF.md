@@ -1,5 +1,11 @@
 # Handoff
 
+## Configuration read preconditions, 2026-10-05
+
+- The deploy wizard refuses failed, missing, malformed, and unverified configuration reads before showing a confirmation. An explicitly absent resource remains a supported first-deployment input.
+- `StructuredConfigPlanner` enforces a supplied `expectedBefore` against the current read. `ConfigTransaction` rechecks the structured value of every changed resource in the plan before any backup or write, refusing the entire plan when a resource changed or cannot be read. Callers without an explicit precondition retain their existing plan-construction behavior.
+- Ten initial regressions failed on the previous source and passed after repair. A staging read failure is also refused unless the original file is explicitly absent, preserving the distinction between an unavailable original and first-file creation. The focused planner/transaction/transport/deployment set passes 83 tests; the related UI and contract set passes 97. Type checking and the Linux application build pass. This does not establish native Windows or live PBX acceptance, nor does the structured-value preflight lock files against independent writers after the check.
+
 ## Onboarding preservation and credential handling, 2026-10-05
 
 - A repeated wizard run preserves an existing `onboard-menu`, including custom or empty contexts, and explains the skipped replacement before confirmation. New endpoints can still be created without erasing existing dialing routes. Issue #12.

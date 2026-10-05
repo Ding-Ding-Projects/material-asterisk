@@ -557,7 +557,9 @@ export class WslConfigTransport implements ConfigTransport {
      * A resource that does not exist yet has no text to preserve, so an empty original is
      * the honest input rather than a failure. */
     let original = "";
-    try { original = await this.#readExact(allowed); } catch { original = ""; }
+    try { original = await this.#readExact(allowed); } catch (error) {
+      if (!looksAbsent(error)) throw error;
+    }
     const body = original.length > 0
       ? renderConfigOver(value as ConfigValue, original)
       : renderConfig(value as ConfigValue);

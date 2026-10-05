@@ -5,7 +5,7 @@ import { App } from '../../app/renderer/src/App';
 
 (globalThis as { window?: unknown }).window ??= {};
 
-function harness(options: { historyFails?: boolean; historyThrows?: boolean; applyFails?: boolean; switchAfterApply?: boolean } = {}) {
+function harness(options: { historyFails?: boolean; historyThrows?: boolean; applyFails?: boolean; switchAfterApply?: boolean; readResponse?: unknown; readThrows?: boolean } = {}) {
   const app = new App({}) as any;
   app.updater = {
     enqueueForceUpdate() {},
@@ -23,7 +23,10 @@ function harness(options: { historyFails?: boolean; historyThrows?: boolean; app
   app.narrator.enqueue = (_kind: string, text: string) => spoken.push(text);
   app.request = async (action: string, extra: any = {}) => {
     calls.push({ action, extra });
-    if (action === 'pbx.config') return { ok: true, data: { value: [] } };
+    if (action === 'pbx.config') {
+      if (options.readThrows) throw new Error('Synthetic configuration transport failure.');
+      return Object.hasOwn(options, 'readResponse') ? options.readResponse : { ok: true, data: { state: 'present', value: [] } };
+    }
     if (action === 'pbx.apply' && options.switchAfterApply) app.target = { id: 'different-target', label: 'Different target', connected: true };
     if (action === 'pbx.apply') return options.applyFails
       ? { ok: false, message: 'Synthetic apply refusal.' }
@@ -134,4 +137,34 @@ test('a refused deployment neither records success nor shows credentials', async
   await h.deploy();
   assert.equal(h.calls.some((call) => call.action === 'local-history.record'), false);
   assert.equal(h.app.state.infoOpen, false);
+});
+
+for (const [name, response] of [
+  ['refused', { ok: false, message: 'Read refused.', data: { state: 'present', value: [] } }],
+  ['missing', undefined],
+  ['malformed', { ok: true, data: { state: 'present', value: {} } }],
+  ['malformed section', { ok: true, data: { state: 'present', value: [null] } }],
+  ['unverified state', { ok: true, data: { value: [] } }],
+] as const) {
+  test(`a ${name} configuration read cannot become an empty deployment target`, async () => {
+    const h = harness({ readResponse: response });
+    await h.app.onboardDeploy();
+    assert.equal(h.app.state.sureOpen, false);
+    assert.equal(h.app.state.sureAction, null);
+    assert.equal(h.calls.some((call) => call.action === 'pbx.apply'), false);
+    assert.match(h.displayed.join('\n'), /not prepared/iu);
+  });
+}
+
+test('a throwing configuration read reports refusal without an unhandled rejection', async () => {
+  const h = harness({ readThrows: true });
+  await h.app.onboardDeploy();
+  assert.equal(h.app.state.sureOpen, false);
+  assert.match(h.displayed.join('\n'), /not prepared/iu);
+});
+
+test('explicitly absent configuration remains a supported first-deployment state', async () => {
+  const h = harness({ readResponse: { ok: true, data: { state: 'absent' } } });
+  await h.deploy();
+  assert.equal(h.calls.some((call) => call.action === 'pbx.apply'), true);
 });

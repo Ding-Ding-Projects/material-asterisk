@@ -4148,8 +4148,16 @@ What you can do: ${offered}.` : ''}`);
   private async readOnboardInputs(serverId: string): Promise<OnboardPlanInputs> {
     const read = async (resource: string): Promise<ConfigValue> => {
       const response = await this.request('pbx.config', { serverId, payload: { resource } });
-      const value = (response as { data?: { value?: ConfigValue } } | undefined)?.data?.value;
-      return Array.isArray(value) ? value : [];
+      if (!response?.ok) throw new Error(`Could not read ${resource}: ${response?.message ?? 'The control plane did not answer.'}`);
+      const data = response.data as { state?: unknown; value?: unknown } | undefined;
+      if (data?.state === 'absent' && data.value === undefined) return [];
+      const value = data?.value;
+      if (data?.state !== 'present' || !Array.isArray(value) || !value.every((section) =>
+        section !== null && typeof section === 'object' && typeof section.name === 'string'
+        && Array.isArray(section.entries) && section.entries.every((entry: { key?: unknown; value?: unknown } | null) =>
+          entry !== null && typeof entry === 'object' && typeof entry.key === 'string' && typeof entry.value === 'string'),
+      )) throw new Error(`Could not read ${resource}: the response was not a verified configuration document.`);
+      return value;
     };
     const [pjsip, extensions, http] = await Promise.all([
       read('/etc/asterisk/pjsip.conf'),
@@ -4222,7 +4230,13 @@ What you can do: ${offered}.` : ''}`);
     const targetId = this.target.id;
     const targetLabel = this.target.label;
     const answers = this.onboardAnswers();
-    const inputs = await this.readOnboardInputs(targetId);
+    let inputs: OnboardPlanInputs;
+    try {
+      inputs = await this.readOnboardInputs(targetId);
+    } catch (error) {
+      this.fire('Deploy plan not prepared', error instanceof Error ? error.message : 'Configuration could not be read. Nothing was changed.');
+      return;
+    }
     const plan = buildOnboardPlan(answers, inputs);
 
     const summaryLines = [

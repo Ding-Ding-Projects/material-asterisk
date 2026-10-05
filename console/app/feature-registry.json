@@ -2836,7 +2836,7 @@
     },
     "guided-forms": {
       "status": "partial",
-      "note": "Repeated onboarding preserves existing menu contexts and reports skipped replacement. Target-bound apply and credential-free history receipt have focused regression coverage. Packaged interaction, captures, and design parity remain unverified.",
+      "note": "Repeated onboarding preserves existing menu contexts and reports skipped replacement. Failed or malformed reads are refused; supplied configuration preconditions and transaction preflight prevent applying an already stale plan. Credential-free receipts and these boundaries have focused regression coverage. Packaged interaction, captures, and design parity remain unverified.",
       "implementation": {
         "paths": [],
         "symbols": [

@@ -4,6 +4,7 @@ import { blockingConfigFindings } from "./config-document-validation.js";
 export interface ConfigDocument {
   resource: string;
   value: unknown;
+  expectedBefore?: unknown;
 }
 
 export interface ConfigTransport {
@@ -40,6 +41,9 @@ export class StructuredConfigPlanner {
         );
       }
       const before = await transport.read(document.resource, signal);
+      if (Object.hasOwn(document, "expectedBefore") && !equal(before, document.expectedBefore)) {
+        throw new Error(`Configuration ${document.resource} changed since it was read. Reload it before applying.`);
+      }
       const changedPaths = diffPaths(before, document.value);
       if (changedPaths.length > 0) diffs.push({ resource: document.resource, before, after: document.value, changedPaths });
     }
@@ -78,6 +82,15 @@ export class ConfigTransaction {
     const applied: Array<{ resource: string; backup: string }> = [];
     let failedAction: string | undefined;
     try {
+      // Check every resource before taking a backup or changing any of them. A
+      // stale later resource must not permit partial application of earlier ones.
+      for (const diff of plan.diffs) {
+        throwIfAborted(signal);
+        failedAction = `verify-before:${diff.resource}`;
+        if (!equal(await this.transport.read(diff.resource, signal), diff.before)) {
+          throw new Error(`Configuration ${diff.resource} changed since it was read. Reload it before applying.`);
+        }
+      }
       for (const diff of plan.diffs) {
         throwIfAborted(signal);
         failedAction = `backup:${diff.resource}`;

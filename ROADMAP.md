@@ -2,6 +2,7 @@
 
 ## Onboarding repair verification, 2026-10-05
 
+- [x] Refuse unavailable or malformed onboarding reads; enforce supplied configuration preconditions and recheck all changed resources in the plan before transaction mutations.
 - [x] Preserve an existing auto-attendant on repeated wizard deployment, with a visible skipped-menu explanation and regression coverage (#12).
 - [x] Record a credential-free deployment receipt, distinguish receipt failure, and keep one-time credentials out of notification history and automatic narration (#11).
 - [x] Release confirmation callbacks and dialog credential content on close; bind the receipt and apply to the reviewed target.
