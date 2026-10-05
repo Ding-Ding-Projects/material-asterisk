@@ -1,5 +1,11 @@
 # Handoff
 
+## Tab-strip icon markup, 2026-10-05
+
+- The three tab-search triggers previously rendered their ligature names as plain button text. The post-compile generator now wraps each glyph in the shared `msym` font class, hides the decorative glyph from accessibility names, and gives the button an explicit action label and `type="button"`. The generated counterpart was rebuilt rather than edited by hand. Issue #9.
+- Six rendered-markup/accessibility assertions failed before repair. All 23 focused icon, tab, design-drift, and generated-callback checks pass; type checking and the Linux application build pass. Each trigger still opens its original search scope.
+- The shipped WOFF2 substitution table contains `search`, `group_work`, and `travel_explore`. Its SHA-256 is `9ec3f3deed0be4da191a434b78fdc53e76ead92333290d3f8ee9f3dde34b6339`. No font replacement was needed. Native Windows rendering and assistive-technology acceptance remain unverified; no new screenshot is claimed.
+
 ## Configuration read preconditions, 2026-10-05
 
 - The deploy wizard refuses failed, missing, malformed, and unverified configuration reads before showing a confirmation. An explicitly absent resource remains a supported first-deployment input.

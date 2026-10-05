@@ -168,9 +168,9 @@ for (const [before, after, name] of [[searchStateMarker, searchStateReplacement,
 }
 const searchButtonMarker = '        h("div", { role: `tablist`, "aria-label": `Open tabs`, onKeyDown: fn(v.tabsKeyDown), style: sty(`display:contents;`) },';
 const searchButtonReplacement = `        h("div", { style: sty(\`display:flex; gap:4px; align-items:center;\`) },
-          h("button", { id: \`tab-search-strip\`, onClick: fn(() => v.openTabSearch('strip')), title: \`Search this tab strip\`, style: sty(\`background:transparent; border:0; color:#9FF7C4; cursor:pointer;\`) }, "search"),
-          h("button", { id: \`tab-search-groups\`, onClick: fn(() => v.openTabSearch('groups')), title: \`Search tab groups\`, style: sty(\`background:transparent; border:0; color:#9FF7C4; cursor:pointer;\`) }, "group_work"),
-          h("button", { id: \`tab-search-master\`, onClick: fn(() => v.openTabSearch('master')), title: \`Search every open tab\`, style: sty(\`background:transparent; border:0; color:#9FF7C4; cursor:pointer;\`) }, "travel_explore")
+          h("button", { id: \`tab-search-strip\`, type: \`button\`, "aria-label": \`Search this tab strip\`, onClick: fn(() => v.openTabSearch('strip')), title: \`Search this tab strip\`, style: sty(\`background:transparent; border:0; color:#9FF7C4; cursor:pointer;\`) }, h("span", { className: "msym", "aria-hidden": true }, "search")),
+          h("button", { id: \`tab-search-groups\`, type: \`button\`, "aria-label": \`Search tab groups\`, onClick: fn(() => v.openTabSearch('groups')), title: \`Search tab groups\`, style: sty(\`background:transparent; border:0; color:#9FF7C4; cursor:pointer;\`) }, h("span", { className: "msym", "aria-hidden": true }, "group_work")),
+          h("button", { id: \`tab-search-master\`, type: \`button\`, "aria-label": \`Search every open tab\`, onClick: fn(() => v.openTabSearch('master')), title: \`Search every open tab\`, style: sty(\`background:transparent; border:0; color:#9FF7C4; cursor:pointer;\`) }, h("span", { className: "msym", "aria-hidden": true }, "travel_explore"))
         ),
 ${searchButtonMarker}`;
 if (!shell.includes(searchButtonMarker)) throw new Error('PBX M3 extension could not find tab search trigger marker.');

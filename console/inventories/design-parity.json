@@ -1,5 +1,10 @@
 {
   "schemaVersion": 1,
+  "tabStripIconVerification": {
+    "date": "2026-10-05",
+    "status": "native-unverified",
+    "note": "Three tab-search glyph spans, accessible action names, original search scopes, and generated-source drift have focused local checks. The bundled font contains all three ligatures. No new native visual or screen-reader result is claimed."
+  },
   "repairVerification": {
     "date": "2026-10-05",
     "surfaces": ["servers", "notifications", "history", "onboardOpen", "sureOpen", "infoOpen"],

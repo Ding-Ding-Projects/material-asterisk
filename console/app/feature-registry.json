@@ -1208,7 +1208,7 @@
     },
     "browser-style-tabs": {
       "status": "implemented-unverified",
-      "note": "Exact source seams are recorded in this schema-v2 row. Built interaction, current-commit captures, and design-parity evidence remain not-run, so this row makes no verified claim.",
+      "note": "The three tab-search triggers use the bundled icon-font class and explicit accessible action names. Rendered markup, activation scopes, and regenerated-source drift have focused checks. Complete tab behavior, packaged visual rendering, and native accessibility remain unverified.",
       "implementation": {
         "paths": [],
         "symbols": [

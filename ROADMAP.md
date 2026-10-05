@@ -1,5 +1,8 @@
 # Ding PBX delivery roadmap
 
+- [x] Correct the three tab-search icon font spans and accessible names in the generator, with generated-output drift and activation-scope regression checks (#9).
+- [ ] Verify the repaired tab-search glyphs in the packaged Windows interface; local markup and bundled-font checks do not establish native visual acceptance.
+
 ## Onboarding repair verification, 2026-10-05
 
 - [x] Refuse unavailable or malformed onboarding reads; enforce supplied configuration preconditions and recheck all changed resources in the plan before transaction mutations.

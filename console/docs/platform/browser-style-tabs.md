@@ -12,21 +12,21 @@ Tabs would support keyboard navigation with correct roles and states, and the st
 
 ## Current status
 
-**Desktop application:** Partial. A left navigation rail separates the app's screens, which gives some of the navigational benefit of tabs, but there is no true tab strip with overflow handling, reordering, pinning, or edge-docking choice.
+**Desktop application:** Partial. The desktop renders a tab strip with separate searches for the current strip, tab groups, and all open tabs. Each search trigger uses a bundled Material Symbols glyph, an explicit accessible action name, and its existing search scope. This repair does not establish complete native tab-management or accessibility acceptance.
 
 **Documentation website:** Partial. Every top-level page and composed article receives the same ARIA tablist with persisted left, right, top, and bottom docking. Left is the default, and side docking collapses to the compact header below 900px. Reordering, pinning, grouping, overflow management, and the four independent tab searches remain incomplete.
 
 ## Failure modes
 
-When more tabs are open than the strip can show, the intended behavior is an overflow menu listing the rest rather than silently clipping the last tab off-screen; there is no tab strip yet to overflow.
+When more tabs are open than the strip can show, the intended behavior is an overflow menu listing the rest rather than silently clipping the last tab off-screen. This icon repair does not verify every overflow state.
 
 ## Accessibility and localization
 
-This feature is expected to follow the product's standing accessibility contract: keyboard reachability, visible focus, correct roles and names, and respect for a reduced-motion preference. There are no automated tests covering the desktop application's generic feature surface at this time, so none of that is independently verified for this feature yet. Copy for this feature is expected to be available in every supported language mode once language modes exist; today all copy is fixed English.
+The three search buttons have explicit action names; their decorative ligature text is hidden from the accessibility tree. Focused tests verify those attributes and activation scopes. Native screen-reader behavior, focus visibility, reduced motion, and the complete language-mode matrix still require broader acceptance testing.
 
 ## Verification
 
-No automated test currently exercises this feature on either surface. Verifying it today means opening the desktop application and the documentation website and checking by hand whether the behavior described above is present; where a surface is marked not implemented above, there is nothing yet to verify there.
+`tests/ui/tab-strip-icons.test.tsx` verifies the actual rendered button markup, accessible names, font-class binding, and three activation scopes. `tests/ui/design-drift.test.mjs` checks that a fresh compiler and extension run reproduces the generated source. Inspection of the bundled font's substitution table confirmed all three required ligatures. These checks do not replace packaged Windows rendering or native assistive-technology verification.
 
 ## Suggested articles
 
