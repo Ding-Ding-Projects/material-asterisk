@@ -79,7 +79,7 @@ test('the immutable design source retains its original handlers while the post-c
 
 test('App.tsx overrides renderVals, calls super, and routes both execution paths through the typed control-plane handler', () => {
   const app = read(APP);
-  const fn = app.match(/renderVals\(\) \{[\s\S]*?const values = super\.renderVals\(\) as Record<string, unknown>;[\s\S]*?executeCeremony: \(\) => \{ void this\.executeCeremonyCommand\(\); \},[\s\S]*?skipCeremony: \(\) => \{/);
+  const fn = app.match(/renderVals\(\) \{[\s\S]*?values = super\.renderVals\(\) as Record<string, unknown>;[\s\S]*?finally \{\s*restoreGroups\(\);[\s\S]*?executeCeremony: \(\) => \{ void this\.executeCeremonyCommand\(\); \},[\s\S]*?skipCeremony: \(\) => \{/);
   assert.ok(fn, 'expected renderVals to call super.renderVals() and route execute and credit paths through executeCeremonyCommand');
   assert.match(fn[0], /return \{\n\s*\.\.\.values,/, 'expected the returned object to spread the base values before overriding ceremony handlers');
   assert.match(app, /private async executeCeremonyCommand\(\): Promise<boolean> \{[\s\S]*?await runCeremonyCommand\(\{/,

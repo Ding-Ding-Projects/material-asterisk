@@ -241,3 +241,17 @@ test('every recorded built capture is a real file, one per destination and never
   }
   assert.equal(seen.size, 32);
 });
+
+test('malformed percent encoding is refused without throwing or replacing a queued route', () => {
+  for (const id of ['%', '%E0%A4%A', '%FF']) {
+    const malformed = `ding-pbx://destination/${id}`;
+    const result = parseDestinationRoute(malformed);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.reason, /encoding/u);
+    assert.equal(firstDestinationRouteArgument([malformed, formatDestinationRoute('dash')]), formatDestinationRoute('dash'));
+    const router = createDestinationRouteRouter(() => false);
+    router.offer(formatDestinationRoute('queues'));
+    assert.equal(router.offer(malformed).ok, false);
+    assert.equal(router.pending()?.destinationId, 'queues');
+  }
+});

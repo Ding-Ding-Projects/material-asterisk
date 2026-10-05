@@ -37,7 +37,10 @@ test('Narrator owns a serialized queue, error reporting, cooldown, quiet mode, a
     'if (this.suppressed()) return false;',
     'if (!isError)',
     'this.queue = this.queue.filter((item) => item.category !== category);',
-    'await this.engine.speak({',
+    'await Promise.race([this.engine.speak({',
+    'if (this.suppressed() || generation !== this.generation) return;',
+    'cancelPending(): void',
+    'this.cancelCurrent?.();',
     'this.lastError = error instanceof Error ? error.message : String(error);',
   ]) assert.ok(src.includes(needle), `missing narrator contract: ${needle}`);
 });
@@ -70,7 +73,7 @@ test('the mounted app routes controls into channels and immediately updates the 
     'next.channels.en.voiceId', 'next.channels.zh.voiceId',
     'next.channels.en.rate', 'next.channels.zh.rate',
     'next.channels.en.pitch', 'next.channels.zh.pitch',
-    'this.narrator.setSettings(next);',
+    'this.narrator.setSettings(effectiveNarrationSettings(this.durableStorage.storage, next));',
   ]) assert.ok(body.includes(needle), `missing live narrator update: ${needle}`);
 });
 
@@ -79,7 +82,7 @@ test('the app persists narration settings and restores the current schema before
   assert.match(src, /private static readonly NARRATION_SETTING = 'console\.narration';/);
   assert.match(src, /this\.durableStorage\.storage\.setItem\(App\.NARRATION_SETTING, JSON\.stringify\(next\)\);/);
   assert.match(src, /private restoreNarration\(\): void \{/);
-  assert.match(src, /this\.narrator\.setSettings\(this\.narration\);/);
+  assert.match(src, /this\.narrator\.setSettings\(effectiveNarrationSettings\(this\.durableStorage\.storage, this\.narration\)\);/);
 });
 
 test('voice enumeration is live and its status source is the effective channel voice', () => {

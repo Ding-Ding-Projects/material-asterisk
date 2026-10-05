@@ -1,5 +1,14 @@
 # Handoff
 
+## Presentation consumer repair, 2026-10-05
+
+- School mode now reaches text, copy levels, vocabulary, narration, control options, palettes and destination navigation. Stored preferences and narration opt-in survive activation and successful unlock. Pending speech is cancelled with a generation guard, so a bilingual tail or older playful message cannot resume after the mode changes.
+- Filtering is scoped to the shell's synchronous render and restored in `finally`. Runtime IVR/editor controls survive repeated and interrupted renders; workspace restoration cannot reopen the hidden vocabulary destination.
+- The earlier deep-link integration tests now exercise the shipped `destination-route.ts`/`onDestination` bridge. The abandoned strict-tuple/window-resize proposal remains explicitly identified as historical. Malformed percent encoding now returns a refusal without throwing. The PDF validation test uses the host platform's absolute temporary path.
+- Local validation: renderer 1,985/1,985; control-plane 938/938; production build passed. The updated deep-link mutation runner checked 34 individual failures, verifying both red and restored-green outcomes. No Windows package, native UI, audible speech, protocol registration or live PBX acceptance was performed.
+- Remaining aggregate checks are not clean: existing exemption/matrix/registry/encoding and generated-documentation drift failures remain. The unchanged destination-route inventory guard still accepts 11 invalid mapping mutations. The inventory verifier also rejects an already-unlisted appearance-reset mutation callback. These failures reproduce in the preceding source and are not waived or weakened here.
+- Generated build bundles and update-manifest changes are excluded from this source repair. School mode stays partial: application-local state is not a cross-application service, the local credential digest is not an OS vault, and some authored rename labels remain unchanged.
+
 ## Tab-strip icon markup, 2026-10-05
 
 - The three tab-search triggers previously rendered their ligature names as plain button text. The post-compile generator now wraps each glyph in the shared `msym` font class, hides the decorative glyph from accessibility names, and gives the button an explicit action label and `type="button"`. The generated counterpart was rebuilt rather than edited by hand. Issue #9.

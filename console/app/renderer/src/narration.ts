@@ -176,6 +176,8 @@ export class Narrator {
   private queue: QueueItem[] = [];
   private speaking = false;
   private disposed = false;
+  private generation = 0;
+  private cancelCurrent: (() => void) | undefined;
   private lastError: string | undefined;
 
   private readonly lastSpokenAtMs = new Map<string, number>();
@@ -314,27 +316,40 @@ export class Narrator {
   }
 
   private async speakItem(item: QueueItem): Promise<void> {
+    const generation = this.generation;
     const langs: Array<'en' | 'zh'> =
       item.language === 'both' ? ['en', 'zh'] : [item.language];
 
     for (const lang of langs) {
-      if (this.suppressed()) return;
+      if (this.suppressed() || generation !== this.generation) return;
       const status = this.status(lang);
       const channel = this.settings.channels[lang];
       const text = typeof item.text === 'string' ? item.text : item.text[lang];
-      await this.engine.speak({
-        text,
-        voiceId: status.effectiveVoiceId,
-        rate: channel.rate,
-        pitch: channel.pitch,
-      });
+      // Cancellation must release the pump even when an engine never settles its
+      // interrupted utterance. The generation prevents a bilingual tail resuming.
+      const cancelled = new Promise<void>((resolve) => { this.cancelCurrent = resolve; });
+      try {
+        await Promise.race([this.engine.speak({
+          text, voiceId: status.effectiveVoiceId, rate: channel.rate, pitch: channel.pitch,
+        }), cancelled]);
+      } finally {
+        this.cancelCurrent = undefined;
+      }
     }
+  }
+
+  /** Stop earlier presentation without changing the saved narration preference. */
+  cancelPending(): void {
+    this.generation += 1;
+    this.queue = [];
+    this.cancelCurrent?.();
+    this.engine.cancel();
+    this.notifyQueueChanged();
   }
 
   dispose(): void {
     this.disposed = true;
-    this.queue = [];
-    this.engine.cancel();
+    this.cancelPending();
     this.voicesUnsubscribe();
     this.notifyQueueChanged();
   }

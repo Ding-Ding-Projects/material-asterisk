@@ -112,7 +112,10 @@ export function parseDestinationRoute(raw: unknown): DestinationRouteParse {
   if (segments.length !== 1) {
     return { ok: false, reason: `expected exactly one path segment naming a destination, got '${url.pathname}'` };
   }
-  const destinationId = decodeURIComponent(segments[0]);
+  let destinationId: string;
+  try { destinationId = decodeURIComponent(segments[0]); } catch {
+    return { ok: false, reason: 'destination has invalid percent encoding' };
+  }
   if (!DESTINATION_ID.test(destinationId)) {
     return { ok: false, reason: `'${destinationId}' is not a destination id` };
   }

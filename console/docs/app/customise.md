@@ -14,9 +14,10 @@ Other fun controls cover copy tone, celebrations, confetti, sound, hidden surpri
 
 ### School mode and narration
 
-- `school_mode` forces English and removes Cantonese, bilingual, funny-level, vocabulary, dim-sum, narration, search and palette surfaces while active.
-- `school_name` is a validated shared display name. The chosen name replaces the shipped name in labels, descriptions, prompts, notices and accessible names.
-- `school_set_credential` and `school_unlock` open an app-owned accessible dialog. The credential is stored through the operating-system credential vault under `ding-pbx-console:school-mode-shared-unlock`, never in settings or application data. The exact `app.getPath('userData')` recovery path is fetched before the dialog can open.
+- `school_mode` forces English text and narration, fully serious copy, and hides the covered Cantonese/bilingual options, funny-level controls, vocabulary controls and destination. Existing startup-surprise suppression also reads this mode. Search and unrelated controls remain available; hidden entries are removed from palettes.
+- The stored language, narration, funny levels and uploaded vocabulary return after successful unlock. Applying the active mode cancels earlier speech without disabling narration.
+- `school_name` changes the local group heading and status messages. Some authored control labels and palette entries still retain the shipped name; no cross-application synchronization is implemented.
+- `school_set_credential` consumes the entered PIN/password into a local digest, and `school_unlock` verifies it before deactivation. This is a presentation speed bump, not a security boundary or operating-system credential-vault integration. The input is cleared after consumption.
 - `nar_enabled` is off by default. The narrator persists language, compatible voice identities, rate, pitch, quiet state and the explicit screen-reader override. Platform accessibility state is also read when available.
 
 ### Motion

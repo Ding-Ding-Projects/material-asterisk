@@ -62,6 +62,7 @@ decision somebody has to make on purpose rather than a line that slides in.
   Nothing falls back to the dashboard: a link that quietly lands somewhere else is
   indistinguishable from one that worked, and the person who followed it has no reason to doubt
   the screen in front of them.
+- **Malformed percent encoding.** Refused without throwing; it cannot replace a valid route already waiting for the renderer.
 - **A differently-cased id.** Refused rather than folded to lowercase. Two spellings of one
   route are two routes as far as a log, a bookmark or a piece of evidence is concerned, and only
   one of them would ever be the one written down.

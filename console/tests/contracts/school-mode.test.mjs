@@ -1,26 +1,6 @@
-/**
- * Contract: School mode.
- *
- * The registry note is confident this is fully wired, but it is confident about a stale
- * claim too: it says the `school-status` control's `action:'school-status'` "App does not
- * answer yet, so the control is present and inert." That is no longer true -- App.tsx does
- * answer it -- so this file recomputes every claim from the current source rather than
- * trusting the note either way.
- *
- * What IS genuinely wired: the switch, the credential (set/verify), the rename path, and
- * the status line. All four are exercised below against App.tsx and school-mode.ts as they
- * exist today.
- *
- * What is NOT wired, and is the central honest gap this file exists to pin: the module's
- * whole reason for being is `filterVisibleCapabilities` / `effectiveLanguageMode` /
- * `effectiveFunnyLevel` -- the functions that would actually OMIT Cantonese, bilingual,
- * funny-level and dim-sum capabilities while the mode is on. None of them is imported or
- * called anywhere in App.tsx. Turning School mode on today flips a stored flag, forces the
- * status line to say "On.", and hides nothing. That is a materially different feature from
- * the one `school-mode.md` and the registry note describe, and it is pinned here rather
- * than papered over -- exactly as the localization evidence pins "partial" instead of
- * rounding a feature up to "localized".
- */
+/** School mode controls and the presentation consumers must remain wired together.
+ * Behavioral coverage lives in school-mode-consumed.test.tsx; these whole-line anchors
+ * also catch accidental removal of the startup and toggle integration. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
@@ -121,24 +101,22 @@ test('all seven controls this feature owns exist in the compiled design', () => 
   }
 });
 
-test('HONEST GAP: nothing in App.tsx ever asks whether a capability should be hidden', () => {
-  /* This is the assertion the whole file exists to make. The switch and the credential
-   * work; the omission behaviour the feature is named for does not exist anywhere in the
-   * mounted app. Anchored on the call shape so a stray comment cannot satisfy it, and the
-   * import line is checked too so a call added without an import (impossible in valid
-   * TypeScript, but this file does not compile anything) cannot slip past either check. */
+test('the mounted application applies the School mode view at its live consumption seams', () => {
   const app = read(APP);
-  for (const call of [
-    'filterVisibleCapabilities(', 'effectiveLanguageMode(',
-    'effectiveFunnyLevel(', 'capabilityVisible(', 'schoolModeDescriptor(', 'lockedOffExplanation(',
-  ]) {
-    assert.ok(!app.includes(call), `${call} must not appear in App.tsx if the omission behaviour is truly unwired`);
-  }
-  const importLine = app.match(/^import \{\n\s*activateSchoolMode, deactivateSchoolMode, hasCredential, renameSchoolMode,\n\s*schoolModeActive, schoolModeName, setCredential, type CredentialMethod,\n\} from '\.\/school-mode';$/m);
-  assert.ok(importLine, 'expected the exact known-good import list from ./school-mode in App.tsx');
+  for (const line of [
+    'return schoolModeStorageView(this.durableStorage.storage) as MessageStorage;',
+    'setLanguageMode(effectiveTextLanguageMode(storage, stored));',
+    'setVocabularyStorage(vocabularyStorageFor(this.durableStorage.storage, this.vocabStorage));',
+    'this.narrator.setSettings(effectiveNarrationSettings(storage, this.narration));',
+    'const restoreGroups = this.prepareSchoolModeScreen(screen);',
+    'restoreGroups();',
+    'this.applySchoolMode();',
+    'this.applySchoolMode(values);',
+  ]) assert.ok(app.split('\n').some((candidate) => candidate.trim() === line), `missing live School mode consumer: ${line}`);
+  assert.match(app, /from '\.\/school-mode-view';/);
 });
 
-test('the module itself proves the hiding behaviour would work, if anything ever called it', () => {
+test('the policy forces English and serious copy while the mode is active', () => {
   /* This keeps the previous test from reading as "the feature does not work" -- the logic
    * is correct and tested in isolation (see tests/ui/school-mode.test.tsx); the gap is
    * specifically that App.tsx never reaches it. */

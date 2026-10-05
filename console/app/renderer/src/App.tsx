@@ -117,8 +117,13 @@ import type { CustomEditor, DetectedEditor } from './external-editor';
 import { loadRules } from './scheduled-settings';
 import {
   activateSchoolMode, deactivateSchoolMode, hasCredential, renameSchoolMode,
-  schoolModeActive, schoolModeName, setCredential, type CredentialMethod,
+  schoolModeActive, schoolModeName, setCredential, capabilityVisible, type CredentialMethod,
 } from './school-mode';
+import {
+  CONTROL_CAPABILITY, effectiveNarrationSettings, effectiveTextLanguageMode, hiddenScreenKeys,
+  hiddenScreenStrings, schoolModeStorageView, visibleControlValue, visibleGroups,
+  vocabularyStorageFor, withoutHiddenEntries, type CapabilityGroup, type CapabilityControl,
+} from './school-mode-view';
 import { attemptMessage, consumeCredential } from './credential-field';
 import { isFunnyLevel, setFunnyLevel, type CopyLanguage } from './funny-levels';
 import { recoveryFor, type FailureKind } from './in-context-recovery';
@@ -206,6 +211,11 @@ registerLocalHistoryScreen();
  *  whatever `SCREENS.servers.groups` currently holds -- appending on every render
  *  would duplicate the maintenance group on every `forceUpdate`. */
 const SERVERS_BASE_GROUPS = ((SCREENS as unknown as Record<string, { groups?: unknown[] }>).servers?.groups ?? []).slice();
+
+// Control identities retain the complete option set while a rendered view filters it.
+const SCHOOL_CONTROLS = new Map(Object.values(SCREENS).flatMap((screen) =>
+  ((screen as { groups?: CapabilityGroup[] }).groups ?? []).flatMap((group) =>
+    (group.ctls ?? []).map((control) => [control.id, control] as const))));
 
 /**
  * The two step sequences `WslProvisioning` can emit through its shared `onStep` callback
@@ -361,6 +371,7 @@ interface Shell {
   /** The compiled shell's own navigation: sets the screen AND the rail it belongs to,
    *  which `setState({ screen })` alone does not. */
   openScreen(id: string): void;
+  val(control: CapabilityControl): unknown;
   setState(update: Record<string, unknown>): void;
   moveNode(id: string, dx: number, dy: number): void;
   addEdgeFrom(): void;
@@ -835,6 +846,22 @@ export class App extends Base {
     super(props);
     this.baseSetVal = this.setVal as (control: ControlRef, value: unknown) => void;
     this.setVal = this.languageAwareSetVal;
+    const baseVal = this.val;
+    this.val = (control) => {
+      if (control.id === 'school_mode') return schoolModeActive(this.durableStorage.storage);
+      const value = baseVal(control);
+      return typeof value === 'string'
+        ? visibleControlValue(this.durableStorage.storage, SCHOOL_CONTROLS.get(control.id) ?? control, value)
+        : value;
+    };
+    const baseOpenScreen = this.openScreen;
+    this.openScreen = (id) => {
+      if (hiddenScreenKeys(this.durableStorage.storage).includes(id)) {
+        this.toast(`That destination is unavailable while ${schoolModeName(this.durableStorage.storage)} is on.`);
+        return;
+      }
+      baseOpenScreen(id);
+    };
     this.baseToast = this.toast as (message: string) => void;
     this.toast = this.gatedToast;
     this.baseFire = this.fire as (title: string, body: string) => void;
@@ -884,7 +911,7 @@ export class App extends Base {
    *  both the two funny-level keys and the one dialog-emoji key, which is every one of
    *  those settings this console persists. */
   private get messageStorage(): MessageStorage {
-    return this.durableStorage.storage;
+    return schoolModeStorageView(this.durableStorage.storage) as MessageStorage;
   }
 
   /** Wraps the shell's own `fire` (a celebratory title/body popup): the title and body
@@ -986,6 +1013,20 @@ export class App extends Base {
   private boundedOverlaySetState = (update: Record<string, unknown>, callback?: () => void): void => {
     const sanitize = (update: Record<string, unknown> | null): Record<string, unknown> | null => {
       if (update === null) return null;
+      const hidden = new Set(hiddenScreenKeys(this.durableStorage.storage));
+      if (hidden.size > 0) {
+        update = { ...update };
+        if (typeof update.screen === 'string' && hidden.has(update.screen)) {
+          const current = (this.state as { screen: string }).screen;
+          const screen = hidden.has(current) ? 'dash' : current;
+          update.screen = screen;
+          update.railId = (SCREENS as Record<string, { rail: string }>)[screen]?.rail;
+        }
+        if (Array.isArray(update.tabs)) update.tabs = update.tabs.filter((key) => !hidden.has(key));
+        if (Array.isArray(update.groups)) update.groups = update.groups.map((group) => ({
+          ...group, tabs: group.tabs.filter((key: string) => !hidden.has(key)),
+        }));
+      }
       // Acceptance captures the action before closing; closed overlays must not
       // retain that callback or any credential-bearing dialog content.
       if (update.sureOpen === false) update = { ...update, sureAction: null };
@@ -1354,7 +1395,7 @@ export class App extends Base {
     /* Until this runs the boundary applies language only. Wiring it here rather than
      * at construction keeps the uploaded file and the rendered text reading from one
      * storage handle instead of two that can disagree. */
-    setVocabularyStorage(this.vocabStorage);
+    setVocabularyStorage(vocabularyStorageFor(this.durableStorage.storage, this.vocabStorage));
     void this.durableStorage.bootstrap().then(() => {
       this.restoreLanguageMode();
       this.restoreDisplayName();
@@ -1366,7 +1407,7 @@ export class App extends Base {
       this.applyRestoredLiveConsoleSettings();
       this.refreshLogoStatus();
       void this.restoreLogoCache();
-      this.refreshSchoolStatus();
+      this.applySchoolMode();
       this.restoreAppearance();
       this.forceUpdate();
       /* Not awaited: it is its own round trip to the privileged process and forces its
@@ -2267,7 +2308,7 @@ What you can do: ${offered}.` : ''}`);
     const name = schoolModeName(this.durableStorage.storage);
     if (on) {
       activateSchoolMode(this.durableStorage.storage);
-      this.refreshSchoolStatus();
+      this.applySchoolMode();
       this.toast(`${name} is on.`);
       return;
     }
@@ -2281,8 +2322,7 @@ What you can do: ${offered}.` : ''}`);
       return;
     }
     const result = deactivateSchoolMode(this.durableStorage.storage, secret);
-    this.setState({ values } as never);
-    this.refreshSchoolStatus();
+    this.applySchoolMode(values);
     this.fire(name, attemptMessage(result.ok ? 'accepted' : 'rejected', name));
   }
 
@@ -2306,6 +2346,39 @@ What you can do: ${offered}.` : ''}`);
   private consumeSchoolCredential(): { secret?: string; values: Record<string, unknown> } {
     const values = (this.state as { values?: Record<string, unknown> }).values ?? {};
     return consumeCredential(values, 'school_credential');
+  }
+
+  /** Apply a read-time presentation override without replacing saved preferences. */
+  private applySchoolMode(values?: Record<string, unknown>): void {
+    const storage = this.durableStorage.storage;
+    this.restoreLanguageMode();
+    if (schoolModeActive(storage)) this.narrator.cancelPending();
+    setVocabularyStorage(vocabularyStorageFor(this.durableStorage.storage, this.vocabStorage));
+    this.narrator.setSettings(effectiveNarrationSettings(storage, this.narration));
+    this.refreshNarrationStatus();
+    const hidden = new Set(hiddenScreenKeys(storage));
+    const state = this.state as { screen: string; tabs: string[]; groups: { tabs: string[] }[] };
+    const tabs = state.tabs.filter((key) => !hidden.has(key));
+    const next: Record<string, unknown> = {
+      tabs: tabs.length ? tabs : ['dash'],
+      groups: state.groups.map((group) => ({ ...group, tabs: group.tabs.filter((key) => !hidden.has(key)) })),
+    };
+    if (values) next.values = values;
+    if (hidden.has(state.screen)) {
+      next.screen = 'dash';
+      next.railId = (SCREENS as Record<string, { rail: string }>).dash.rail;
+    }
+    this.setState(next);
+    this.refreshSchoolStatus();
+  }
+
+  /** Filter only the shell's read. Runtime additions remain on the authored screen. */
+  private prepareSchoolModeScreen(screen: string): () => void {
+    const descriptor = (SCREENS as Record<string, { groups?: CapabilityGroup[] }>)[screen];
+    if (!descriptor) return () => undefined;
+    const groups = descriptor.groups;
+    descriptor.groups = visibleGroups(this.durableStorage.storage, groups ?? []);
+    return () => { descriptor.groups = groups; };
   }
 
   private refreshSchoolStatus(): void {
@@ -2563,7 +2636,12 @@ What you can do: ${offered}.` : ''}`);
   }
 
   private paletteMatches(): PaletteMatch[] {
-    return searchPalette(this.palette, this.paletteQuery);
+    const storage = this.durableStorage.storage;
+    const hidden = new Set(hiddenScreenKeys(storage));
+    const entries = this.palette.filter((entry) => !hidden.has(entry.screen)
+      && (!entry.controlId || !CONTROL_CAPABILITY[entry.controlId]
+        || capabilityVisible(storage, CONTROL_CAPABILITY[entry.controlId])));
+    return searchPalette(entries, this.paletteQuery);
   }
 
   private togglePalette(): void {
@@ -3289,7 +3367,7 @@ What you can do: ${offered}.` : ''}`);
      * switch, the language, either voice, rate and pitch -- rather than only on the
      * next restart. This is the one line that makes the seven `nar_*` controls above
      * actually reach something that speaks instead of only reaching localStorage. */
-    this.narrator.setSettings(next);
+    this.narrator.setSettings(effectiveNarrationSettings(this.durableStorage.storage, next));
     this.refreshNarrationStatus();
   }
 
@@ -3317,7 +3395,7 @@ What you can do: ${offered}.` : ''}`);
      * branch above. The narrator's own field default happens to already match
      * `defaultNarrationSettings()`, but this makes that an explicit guarantee instead
      * of leaving two independently-constructed defaults to keep agreeing by accident. */
-    this.narrator.setSettings(this.narration);
+    this.narrator.setSettings(effectiveNarrationSettings(this.durableStorage.storage, this.narration));
     this.refreshNarrationStatus();
   }
 
@@ -3330,9 +3408,10 @@ What you can do: ${offered}.` : ''}`);
    * on this machine can read.
    */
   private refreshNarrationStatus(): void {
-    const languages: ('en' | 'zh')[] = this.narration.language === 'both'
+    const effective = effectiveNarrationSettings(this.durableStorage.storage, this.narration);
+    const languages: ('en' | 'zh')[] = effective.language === 'both'
       ? ['en', 'zh']
-      : [this.narration.language === 'zh' ? 'zh' : 'en'];
+      : [effective.language === 'zh' ? 'zh' : 'en'];
     const lines = languages.map((language) =>
       resolveVoiceStatus(language, this.narration.channels[language].voiceId, this.voices).message);
     this.narrationStatusLine = this.narration.enabled
@@ -3643,8 +3722,10 @@ What you can do: ${offered}.` : ''}`);
    *  rather than guessing, so a hand-edited settings file cannot strand somebody in a
    *  language they never chose. */
   private restoreLanguageMode(): void {
-    const saved = this.durableStorage.storage.getItem(App.LANGUAGE_SETTING);
-    if (isLanguageMode(saved)) setLanguageMode(saved);
+    const storage = this.durableStorage.storage;
+    const saved = storage.getItem(App.LANGUAGE_SETTING);
+    const stored = isLanguageMode(saved) ? saved : 'en';
+    setLanguageMode(effectiveTextLanguageMode(storage, stored));
   }
 
   /** Every control change routes through the compiled shell's `setVal`; this notices
@@ -3846,8 +3927,8 @@ What you can do: ${offered}.` : ''}`);
     }
     if (control?.id === 'lang_mode') {
       const mode = App.LANGUAGE_CHOICES[String(value)];
-      if (mode && mode !== languageMode()) {
-        setLanguageMode(mode);
+      if (mode) {
+        setLanguageMode(effectiveTextLanguageMode(this.durableStorage.storage, mode));
         this.durableStorage.storage.setItem(App.LANGUAGE_SETTING, mode);
       }
     }
@@ -9144,7 +9225,18 @@ It is shown once. The far end needs it to register.`);
     if (screen === 'servers') this.prepareServersScreen();
     if (screen === 'ivr') this.prepareIvrScreen();
     if (screen === LOCAL_HISTORY_SCREEN_ID) this.prepareLocalHistoryScreen();
-    const values = super.renderVals() as Record<string, unknown>;
+    const restoreGroups = this.prepareSchoolModeScreen(screen);
+    let values: Record<string, unknown>;
+    try {
+      values = super.renderVals() as Record<string, unknown>;
+    } finally {
+      restoreGroups();
+    }
+    const hiddenScreens = hiddenScreenStrings(this.durableStorage.storage, SCREENS);
+    for (const key of ['sections', 'paletteItems', 'ctxItems']) {
+      const entries = values[key];
+      if (Array.isArray(entries)) values[key] = withoutHiddenEntries(hiddenScreens, entries as { label?: string }[]);
+    }
     values.groups = constrainLogoPickerValues(values.groups);
     const bridge = this.bridge();
     const readings = this.readings[screen];

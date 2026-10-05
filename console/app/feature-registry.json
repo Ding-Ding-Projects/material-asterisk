@@ -236,9 +236,12 @@
     },
     "school-mode": {
       "status": "partial",
-      "note": "Exact source seams are recorded in this schema-v2 row. Built interaction, current-commit captures, and design-parity evidence remain not-run, so this row makes no verified claim.",
+      "note": "The renderer applies the School mode presentation view at startup and after mode changes. Language, narration, vocabulary, controls and destinations have local regression coverage. Cross-application shared state and native runtime verification remain unavailable.",
       "implementation": {
-        "paths": [],
+        "paths": [
+          "app/renderer/src/school-mode-view.ts",
+          "app/renderer/src/App.tsx"
+        ],
         "symbols": [
           {
             "path": "app/renderer/src/school-mode.ts",

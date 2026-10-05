@@ -7,8 +7,8 @@ import { executePdfOperationAtomic, validatePdfOperationRequest } from '../../co
 
 test('PDF request validation rejects unsafe shapes before an executor is called', () => {
   assert.throws(() => validatePdfOperationRequest({ operation: 'merge', sourcePaths: ['relative.pdf', 'other.pdf'] }), /absolute/u);
-  assert.throws(() => validatePdfOperationRequest({ operation: 'reorder', sourcePaths: ['C:\\one.pdf'], pageOrder: [1, 1] }), /repeat/u);
-  assert.throws(() => validatePdfOperationRequest({ operation: 'rotate', sourcePaths: ['C:\\one.pdf'], pages: [1], degrees: 45 as never }), /90, 180, or 270/u);
+  assert.throws(() => validatePdfOperationRequest({ operation: 'reorder', sourcePaths: [join(tmpdir(), 'one.pdf')], pageOrder: [1, 1] }), /repeat/u);
+  assert.throws(() => validatePdfOperationRequest({ operation: 'rotate', sourcePaths: [join(tmpdir(), 'one.pdf')], pages: [1], degrees: 45 as never }), /90, 180, or 270/u);
 });
 
 test('PDF execution writes through a temporary path and independently validates before replacement', async () => {

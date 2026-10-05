@@ -11,6 +11,12 @@
     "status": "native-unverified",
     "note": "Onboarding preservation, verified-read refusal, configuration preconditions, secret-free receipts, and transient credential cleanup have local regression coverage. Existing captures do not verify these repairs; no new native capture or parity result is claimed."
   },
+  "presentationRepairVerification": {
+    "date": "2026-10-05",
+    "surfaces": ["customise", "appearance", "vocab", "ivr", "paletteOpen"],
+    "status": "native-unverified",
+    "note": "School mode consumers, runtime-group preservation, queued-speech cancellation and destination-route validation have local regression coverage. No new native capture or design-parity claim is made."
+  },
   "sourceArchive": {
     "sha256": "9A4284745A745C18A18B0A23D2A2F5851A79F9B6EFCBC5EE30EDCD69CEA2863F",
     "verification": "independent-authoritative-audit"

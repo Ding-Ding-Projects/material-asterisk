@@ -35,6 +35,7 @@ import * as view from '../../app/renderer/src/school-mode-view';
 import { LEVEL_SETTING_PREFIX, funnyLevel, setFunnyLevel } from '../../app/renderer/src/funny-levels';
 import { languageMode, setCatalog, setLanguageMode, setVocabularyStorage, transformText } from '../../app/renderer/src/text-boundary';
 import { loadVocabularyFile } from '../../app/renderer/src/personal-vocabulary';
+import { Narrator } from '../../app/renderer/src/narration';
 
 const APP_SOURCE = readFileSync(new URL('../../app/renderer/src/App.tsx', import.meta.url), 'utf8')
   /* CRLF stripped before any multi-line or line-anchored match. Parts of this checkout are
@@ -81,10 +82,8 @@ const schoolOff = () => memoryStorage();
  * Renders the real `App` pinned on one screen, with School mode written into the very
  * storage the running console reads.
  *
- * `prepareSchoolModeScreen` assigns filtered groups onto the shared `SCREENS` object, so
- * every render is followed by an unfiltered one that puts them back. Without that, one
- * School-mode render would leave the design filtered for whatever ran next in this
- * process -- and a test that only passes when it runs first is not a test.
+ * Filtering is scoped to the shell read and restores SCREENS in a finally block. The
+ * extra unfiltered render also verifies that the shared presentation remains usable.
  */
 function renderScreen(screen: string, options: { school?: boolean; railId?: string; extra?: Record<string, unknown> } = {}): string {
   const { school = false, railId = 'app', extra = {} } = options;
@@ -159,8 +158,8 @@ test('no surviving group description promises a capability the mode has taken aw
         this.state = { ...this.state, screen, railId: 'app', onboardOpen: false };
       }
     }
-    renderToStaticMarkup(createElement(Pinned as never));
-    const groups = screens[screen]?.groups ?? [];
+    const pinned = new Pinned({});
+    const groups = (pinned as unknown as { renderVals(): { groups: Group[] } }).renderVals().groups;
     assert.ok(groups.length > 0, `no groups found on ${screen} -- nothing was scanned`);
     for (const group of groups) {
       if (group.title !== undefined && view.SELF_DESCRIBING_GROUPS.has(group.title)) continue;
@@ -356,17 +355,13 @@ test("the language control's labels agree with App's own label-to-mode table", (
   assert.deepEqual([...options].sort(), ['English', appLabels[1], appLabels[2]].sort());
 });
 
-test('both screens whose groups are rebuilt every render are covered by the filter', () => {
-  /* `prepareServersScreen` and `prepareLocalHistoryScreen` replace their screen's groups
-   * outright, so the module-load snapshot is stale for them by construction and the live
-   * array has to be what gets filtered. This asserts the set naming them still names
-   * exactly the screens that behave that way. */
-  const named = [...APP_SOURCE.matchAll(/^const RUNTIME_GROUP_SCREENS: ReadonlySet<string> = new Set\(\[(.+?)\]\);$/gmu)][0];
-  assert.ok(named, 'RUNTIME_GROUP_SCREENS is no longer declared on one line in App.tsx');
-  const rebuilders = [...APP_SOURCE.matchAll(/^\s+screens\[?([A-Za-z_.']+)\]?!?\.groups = /gmu)].length;
-  assert.equal(rebuilders, 2, `expected exactly two screens to rebuild their groups, found ${rebuilders} -- the covered set needs revisiting`);
-  assert.ok(named[1]!.includes("'servers'"), 'the servers screen is no longer named in RUNTIME_GROUP_SCREENS');
-  assert.ok(named[1]!.includes('LOCAL_HISTORY_SCREEN_ID'), 'the local-history screen is no longer named in RUNTIME_GROUP_SCREENS');
+test('filtering a rendered screen does not mutate the shared authored or runtime groups', () => {
+  for (const screen of ['customise', 'appearance']) {
+    const before = screens[screen]!.groups;
+    renderScreen(screen, { school: true });
+    assert.equal(screens[screen]!.groups, before);
+    assert.deepEqual(screens[screen]!.groups, before);
+  }
 });
 
 /* ------------------------------------------------------------------ *
@@ -489,7 +484,7 @@ const wiringLines: readonly [string, string, RegExp][] = [
   ['App.tsx', 'an unlock attempt re-applies it either way',
     /^\s+this\.applySchoolMode\(values\);$/mu],
   ['App.tsx', 'the screen about to render is filtered',
-    /^\s+this\.prepareSchoolModeScreen\(screen\);$/mu],
+    /^\s+const restoreGroups = this\.prepareSchoolModeScreen\(screen\);$/mu],
   ['App.tsx', 'the rail and the palette drop hidden destinations',
     /^\s+if \(Array\.isArray\(entries\)\) values\[key\] = withoutHiddenEntries\(hiddenScreens, entries as \{ label\?: string \}\[\]\);$/mu],
   ['DimSumSurprise.tsx', 'the startup surprise asks before drawing',
@@ -647,13 +642,13 @@ test('the feature registry no longer carries the claim this change disproved', (
    * none of the visibility functions were imported by App.tsx. Leaving that in place would
    * send somebody to repair a defect that is fixed. */
   const registry = JSON.parse(readFileSync(new URL('../../app/feature-registry.json', import.meta.url), 'utf8')) as
-    { features: Record<string, { state: string; note: string; files: string[] }> };
+    { features: Record<string, { status: string; note: string; implementation: { paths: string[] } }> };
   const entry = registry.features['school-mode']!;
   assert.ok(!entry.note.includes('none of them are imported by App.tsx'),
     'the registry still says the visibility functions have no caller, which is no longer true');
-  assert.ok(entry.files.includes('app/renderer/src/school-mode-view.ts'),
+  assert.ok(entry.implementation.paths.includes('app/renderer/src/school-mode-view.ts'),
     'the registry does not list the module that consumes the mode');
-  assert.equal(entry.state, 'partial',
+  assert.equal(entry.status, 'partial',
     'the registry claims more than this change delivered -- the one shared cross-application record is still not built');
 });
 
@@ -667,4 +662,172 @@ test('the storage the app actually hands the view really is the one the switch w
   assert.equal(schoolModeActive(app.durableStorage.storage), false);
   activateSchoolMode(app.durableStorage.storage);
   assert.equal(schoolModeActive(app.durableStorage.storage), true);
+});
+
+test('hidden destinations and settings cannot be reopened through either palette or navigation', () => {
+  const app = operableApp() as ReturnType<typeof operableApp> & {
+    openScreen(id: string): void;
+    paletteMatches(): { entry: { screen: string; controlId?: string } }[];
+  };
+  app.setVal({ id: 'school_mode' }, true);
+  app.openScreen('vocab');
+  assert.equal(app.state.screen, 'customise');
+  assert.ok(app.paletteMatches().every(({ entry }) => entry.screen !== 'vocab'
+    && !['fun_level', 'fun_level_yue', 'va_file', 'va_status', 'va_clear', 'nar_yue_voice'].includes(entry.controlId ?? '')));
+});
+
+test('bound language controls show English without replacing their stored choice', () => {
+  const app = operableApp() as ReturnType<typeof operableApp> & { val(control: Ctl): unknown };
+  app.setVal({ id: 'lang_mode' }, '廣東話');
+  app.setVal({ id: 'nar_language' }, 'Both');
+  app.setVal({ id: 'school_mode' }, true);
+  assert.equal(app.val({ id: 'lang_mode' }), 'English');
+  assert.equal(app.val({ id: 'nar_language' }), 'English');
+  assert.equal((app.state.values as Record<string, unknown>).lang_mode, '廣東話');
+  assert.equal(app.durableStorage.storage.getItem('console.languageMode'), 'yue');
+});
+
+test('narration changes and restored profiles remain English while suppression is active', () => {
+  const app = operableApp() as ReturnType<typeof operableApp> & {
+    narrator: { setSettings(settings: { language: string }): void };
+    restoreNarration(): void;
+    narrationStatusLine: string;
+  };
+  const heard: string[] = [];
+  app.narrator.setSettings = (settings) => { heard.push(settings.language); };
+  app.setVal({ id: 'nar_language' }, 'Both');
+  app.setVal({ id: 'school_mode' }, true);
+  app.setVal({ id: 'nar_language' }, '廣東話');
+  app.restoreNarration();
+  assert.deepEqual(heard, ['both', 'en', 'en', 'en']);
+  assert.equal(JSON.parse(app.durableStorage.storage.getItem('console.narration')!).language, 'zh');
+  assert.doesNotMatch(app.narrationStatusLine, /Cantonese/u);
+});
+
+test('successful unlock restores vocabulary and narration and leaves saved funny levels intact', () => {
+  const app = operableApp() as ReturnType<typeof operableApp> & {
+    narrator: { setSettings(settings: { language: string }): void };
+    val(control: Ctl): unknown;
+  };
+  let heard = '';
+  app.narrator.setSettings = (settings) => { heard = settings.language; };
+  loadVocabularyFile(app.vocabStorage, JSON.stringify({ version: 1, replacements: [{ from: 'Dashboard', to: 'Front page' }] }));
+  app.setVal({ id: 'lang_mode' }, 'English');
+  app.setVal({ id: 'nar_language' }, 'Both');
+  app.setVal({ id: 'fun_level' }, 4);
+  app.setVal({ id: 'school_method' }, 'pin');
+  app.setVal({ id: 'school_credential' }, '4321');
+  app.setVal({ id: 'school_set_credential' }, true);
+  app.setVal({ id: 'school_mode' }, true);
+  assert.equal(transformText('Dashboard'), 'Dashboard');
+  assert.equal(heard, 'en');
+  app.setVal({ id: 'school_credential' }, '4321');
+  app.setVal({ id: 'school_unlock' }, true);
+  assert.equal(transformText('Dashboard'), 'Front page');
+  assert.equal(heard, 'both');
+  assert.equal(funnyLevel(app.durableStorage.storage, 'en'), 4);
+  assert.equal(app.val({ id: 'school_mode' }), false);
+  setVocabularyStorage(undefined);
+  setLanguageMode('en');
+});
+
+test('repeated filtered renders restore their authored controls when the mode is off again', () => {
+  const off = readable(renderScreen('customise'));
+  for (let index = 0; index < 2; index += 1) {
+    assert.ok(!readable(renderScreen('customise', { school: true })).includes('Cantonese voice'));
+    assert.equal(readable(renderScreen('customise')), off);
+  }
+});
+
+test('restored workspaces cannot reintroduce hidden tabs or navigate around the screen gate', () => {
+  class Driven extends (App as unknown as new (props: unknown) => { state: Record<string, unknown>;
+    setState(update: unknown): void; durableStorage: { storage: ReturnType<typeof memoryStorage> } }) {
+    setState(update: unknown): void {
+      const patch = typeof update === 'function' ? update(this.state) : update;
+      this.state = { ...this.state, ...patch };
+    }
+  }
+  const app = new Driven({});
+  activateSchoolMode(app.durableStorage.storage);
+  app.setState({ screen: 'vocab', railId: 'agent', tabs: ['dash', 'vocab'], groups: [{ id: 'saved', tabs: ['vocab', 'dash'] }] });
+  assert.equal(app.state.screen, 'dash');
+  assert.equal(app.state.railId, screens.dash && (screens.dash as { rail?: string }).rail);
+  assert.deepEqual(app.state.tabs, ['dash']);
+  assert.deepEqual(app.state.groups, [{ id: 'saved', tabs: ['dash'] }]);
+  app.setState(() => ({ screen: 'vocab', tabs: ['vocab', 'cdr'] }));
+  assert.equal(app.state.screen, 'dash');
+  assert.deepEqual(app.state.tabs, ['cdr']);
+});
+
+test('the runtime IVR write control survives repeated renders and School mode transitions', () => {
+  const app = operableApp() as ReturnType<typeof operableApp> & { renderVals(): { groups: { ctls: { id: string }[] }[] } };
+  app.state = { ...app.state, screen: 'ivr', railId: 'media' };
+  const writes = () => app.renderVals().groups.flatMap((group) => group.ctls).filter((control) => control.id === 'i_apply');
+  assert.equal(writes().length, 1);
+  assert.equal(writes().length, 1);
+  app.setVal({ id: 'school_method' }, 'pin');
+  app.setVal({ id: 'school_credential' }, '4321');
+  app.setVal({ id: 'school_set_credential' }, true);
+  app.setVal({ id: 'school_mode' }, true);
+  assert.equal(writes().length, 1);
+  app.setVal({ id: 'school_credential' }, '4321');
+  app.setVal({ id: 'school_unlock' }, true);
+  assert.equal(writes().length, 1);
+});
+
+test('turning School mode on cancels old bilingual and queued speech, and new English still speaks', async () => {
+  const app = operableApp() as ReturnType<typeof operableApp> & { narrator: Narrator };
+  const spoken: string[] = [];
+  let cancelled = 0;
+  let finishOld: () => void = () => undefined;
+  const narrator = new Narrator({
+    voices: () => [], onVoicesChanged: () => () => undefined,
+    cancel: () => { cancelled += 1; },
+    speak: ({ text }) => {
+      spoken.push(text);
+      return spoken.length === 1 ? new Promise<void>((resolve) => { finishOld = resolve; }) : Promise.resolve();
+    },
+  });
+  app.setVal({ id: 'nar_language' }, 'Both');
+  app.setVal({ id: 'nar_enabled' }, true);
+  app.narrator = narrator;
+  narrator.setSettings(JSON.parse(app.durableStorage.storage.getItem('console.narration')!));
+  narrator.enqueue('before', { en: 'Previous English', zh: 'Previous Cantonese' });
+  narrator.enqueue('queued', { en: 'Previous playful copy', zh: 'Queued Cantonese' });
+  app.setVal({ id: 'school_mode' }, true);
+  narrator.enqueue('after', { en: 'Current English', zh: 'Current Cantonese' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(cancelled > 0);
+  assert.deepEqual(spoken, ['Previous English', 'School mode is on.', 'Current English']);
+  assert.equal(narrator.getSettings().enabled, true);
+  assert.equal(JSON.parse(app.durableStorage.storage.getItem('console.narration')!).language, 'both');
+  finishOld();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(spoken, ['Previous English', 'School mode is on.', 'Current English']);
+  narrator.dispose();
+});
+
+test('late editor detection keeps its runtime action through filtered rerenders', async () => {
+  const app = operableApp() as ReturnType<typeof operableApp> & {
+    renderVals(): { groups: { ctls: { id: string }[] }[] };
+    refreshEditorDetection(): Promise<void>;
+  };
+  app.setVal({ id: 'school_mode' }, true);
+  app.renderVals();
+  await app.refreshEditorDetection();
+  for (let index = 0; index < 2; index += 1) {
+    const ids = app.renderVals().groups.flatMap((group) => group.ctls.map((control) => control.id));
+    assert.ok(ids.includes('ed_open'));
+    assert.ok(!ids.includes('nar_yue_voice'));
+  }
+});
+
+test('the authored groups are restored even if the shell render throws', () => {
+  const app = operableApp() as ReturnType<typeof operableApp> & { renderVals(): unknown; buildCtl(): never };
+  app.setVal({ id: 'school_mode' }, true);
+  const before = screens.customise!.groups;
+  app.buildCtl = () => { throw new Error('render interrupted'); };
+  assert.throws(() => app.renderVals(), /render interrupted/u);
+  assert.equal(screens.customise!.groups, before);
+  assert.ok(before!.flatMap((group) => group.ctls ?? []).some((control) => control.id === 'nar_yue_voice'));
 });

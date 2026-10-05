@@ -30,6 +30,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { WIRING } from './destination-route-wiring.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const RULES = 'tests/control-plane/deep-link.test.ts';
@@ -163,122 +164,35 @@ const BREAKS = [
     tests: [RULES],
   },
 
-  // ------------------------------------------------------- the renderer end
+  // Production wiring uses destination-route.ts and the onDestination bridge. Keep
+  // the historical parser's rule regressions above, and mutate the live seams here.
+  ...WIRING.map(([file, pattern, consequence]) => {
+    const relative = file.replace(/^console\//u, '');
+    const source = readFileSync(resolve(root, relative), 'utf8').replaceAll('\r\n', '\n');
+    const matched = source.match(pattern)?.[0];
+    if (!matched) throw new Error(`No production wiring anchor found: ${file}: ${consequence}`);
+    return {
+      name: consequence, file: relative, find: matched,
+      replace: matched.replace(/^(\s*)(\S)/u, '$1// $2'), tests: [WIRED],
+    };
+  }),
   {
-    name: 'the renderer never pulls the queue, so every link that started the process is lost before anything is listening',
+    name: 'a startup route is discarded instead of held for the renderer',
+    file: 'app/electron/deep-link.ts',
+    find: '    held = sent ? undefined : route;',
+    replace: '    held = undefined;', tests: [WIRED],
+  },
+  {
+    name: 'the screen moves without the rail',
     file: 'app/renderer/src/App.tsx',
-    find: '    void deepLink.pending().then((queued) => {',
-    replace: '    void Promise.resolve([] as DeepLinkDelivery[]).then((queued) => {',
-    tests: [WIRED],
+    find: '    this.openScreen(resolution.destinationId);',
+    replace: '    this.setState({ screen: resolution.destinationId });', tests: [WIRED],
   },
   {
-    name: 'the renderer never subscribes to the live channel, so only a link that started the process ever arrives',
-    file: 'app/renderer/src/App.tsx',
-    find: '    this.stopDeepLinkListener = deepLink.onNavigate((delivery) => this.openDeepLink(delivery));',
-    replace: '    this.stopDeepLinkListener = undefined;',
-    tests: [WIRED],
-  },
-  {
-    name: 'a refused link is dropped in silence, so a typo and a broken installation look identical',
-    file: 'app/renderer/src/App.tsx',
-    find: '    if (!delivery.ok) { this.toast(`That link could not be opened. ${delivery.reason}`); return; }',
-    replace: '    if (!delivery.ok) { return; }',
-    tests: [WIRED],
-  },
-  {
-    name: 'a refused link navigates anyway, to whatever destination the refused link named',
-    file: 'app/renderer/src/App.tsx',
-    find: '    if (!resolved.ok) { this.toast(`That link could not be opened. ${resolved.reason}`); return; }',
-    replace: '    if (!resolved.ok) { this.openScreen(delivery.target.destinationId); return; }',
-    tests: [WIRED],
-  },
-  {
-    name: 'the screen moves without the rail, so the destination arrives beside the previous rail section list',
-    file: 'app/renderer/src/App.tsx',
-    find: '    this.openScreen(resolved.destinationId);',
-    replace: "    this.setState({ screen: resolved.destinationId });",
-    tests: [WIRED],
-  },
-  {
-    name: 'the subscriber is never called on mount, so every method behind it is unreachable at run time',
-    file: 'app/renderer/src/App.tsx',
-    find: '    this.listenForDeepLinks();',
-    replace: '    void 0;',
-    tests: [WIRED],
-  },
-  {
-    name: 'the listener outlives the component and fires into a dead tree on the next reload',
-    file: 'app/renderer/src/App.tsx',
-    find: '    this.stopDeepLinkListener?.();',
-    replace: '    void 0;',
-    tests: [WIRED],
-  },
-
-  // ------------------------------------------------------- the main-process end
-  {
-    name: 'the scheme is never registered with the operating system, so no click on a link reaches this application at all',
-    file: 'app/electron/main.ts',
-    find: '  if (app.isPackaged) app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);',
-    replace: '  void DEEP_LINK_SCHEME;',
-    tests: [WIRED],
-  },
-  {
-    name: 'the single-instance lock is dropped, so every link opens a second copy of the console',
-    file: 'app/electron/main.ts',
-    find: '} else if (!app.requestSingleInstanceLock()) {',
-    replace: '} else if (false) {',
-    tests: [WIRED],
-  },
-  {
-    name: 'a second launch never hands its command line to the first, so the lock silently discards every link',
-    file: 'app/electron/main.ts',
-    find: "  app.on('second-instance', (_event, argv) => receiveDeepLink(firstDeepLinkInArgv(argv)));",
-    replace: '  void receiveDeepLink;',
-    tests: [WIRED],
-  },
-  {
-    name: 'the renderer has nothing to pull the startup queue from',
-    file: 'app/electron/main.ts',
-    find: "ipcMain.handle('deep-link:pending', (): DeepLinkDelivery[] => {",
-    replace: "ipcMain.handle('deep-link:pendinq', (): DeepLinkDelivery[] => {",
-    tests: [WIRED],
-  },
-  {
-    name: 'a link arriving while the console runs is never pushed to the renderer',
-    file: 'app/electron/main.ts',
-    find: "    mainWindow.webContents.send('deep-link:navigate', delivery);",
-    replace: '    deepLinkQueue.push(delivery);',
-    tests: [WIRED],
-  },
-  {
-    name: 'the link this process was started with is never read off its own command line',
-    file: 'app/electron/main.ts',
-    find: 'const startupDelivery = deliveryFor(firstDeepLinkInArgv(process.argv));',
-    replace: 'const startupDelivery = deliveryFor(undefined);',
-    tests: [WIRED],
-  },
-  {
-    name: 'the window never takes the size the route declares, so the tuple it names is not the tuple it produces',
-    file: 'app/electron/main.ts',
-    find: '  if (startupDelivery?.ok) mainWindow.setContentSize(startupDelivery.target.width, startupDelivery.target.height);',
-    replace: '  void startupDelivery;',
-    tests: [WIRED],
-  },
-
-  // ------------------------------------------------------- the preload Electron actually loads
-  {
-    name: 'the channel is exposed only on the TypeScript preload, not the .cjs Electron really loads',
-    file: 'app/electron/preload.cjs',
-    find: "    pending: () => ipcRenderer.invoke('deep-link:pending'),",
-    replace: "    pendinq: () => ipcRenderer.invoke('deep-link:pending'),",
-    tests: [WIRED],
-  },
-  {
-    name: 'the .cjs preload stops listening on the live channel',
-    file: 'app/electron/preload.cjs',
-    find: "      ipcRenderer.on('deep-link:navigate', handler);",
-    replace: "      ipcRenderer.on('deep-link:naviqate', handler);",
-    tests: [WIRED],
+    name: 'malformed destination encodings are thrown instead of refused',
+    file: 'shared/destination-route.ts',
+    find: "    return { ok: false, reason: 'destination has invalid percent encoding' };",
+    replace: "    throw new URIError('invalid encoding');", tests: ['tests/control-plane/destination-route.test.ts'],
   },
 
   // ------------------------------------------------------- the generated product-route column
@@ -311,12 +225,15 @@ function forFile(source, text) {
 }
 
 function run(tests) {
-  const result = spawnSync('npx', ['tsx', '--test', ...tests], {
+  const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', ...tests], {
     cwd: root, encoding: 'utf8', shell: process.platform === 'win32',
   });
   return result.status ?? 1;
 }
 
+if (run([RULES, WIRED, 'tests/control-plane/destination-route.test.ts']) !== 0) {
+  throw new Error('The untouched route tests must pass before planting failures.');
+}
 let failures = 0;
 for (const breakage of BREAKS) {
   const path = resolve(root, breakage.file);
@@ -333,9 +250,13 @@ for (const breakage of BREAKS) {
     failures += 1;
     continue;
   }
-  writeFileSync(path, broken);
-  const redStatus = run(breakage.tests);
-  writeFileSync(path, original);
+  let redStatus;
+  try {
+    writeFileSync(path, broken);
+    redStatus = run(breakage.tests);
+  } finally {
+    writeFileSync(path, original);
+  }
   if (readFileSync(path, 'utf8') !== original) {
     console.error(`FATAL: ${breakage.file} was not restored byte-for-byte; stop and check the tree`);
     process.exit(2);
@@ -345,7 +266,12 @@ for (const breakage of BREAKS) {
     failures += 1;
     continue;
   }
-  console.log(`red then restored: ${breakage.name}`);
+  if (run(breakage.tests) !== 0) {
+    console.error(`FAILED after restoring: ${breakage.name}`);
+    failures += 1;
+    continue;
+  }
+  console.log(`red then restored green: ${breakage.name}`);
 }
 
 if (failures > 0) {

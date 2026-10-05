@@ -10,7 +10,9 @@
 - [x] Record a credential-free deployment receipt, distinguish receipt failure, and keep one-time credentials out of notification history and automatic narration (#11).
 - [x] Release confirmation callbacks and dialog credential content on close; bind the receipt and apply to the reviewed target.
 - [ ] Verify these repairs in the packaged Windows interface and against a real PBX. The passing local tests do not establish that acceptance.
-- [ ] Resolve the separately reproduced baseline renderer failures: nine deep-link wiring and 22 School mode cases.
+- [x] Resolve the separately reproduced renderer failures: migrate nine deep-link integration cases to the shipped bridge and wire the School mode presentation consumers, keeping their schema-v2 registry partial.
+- [x] Reject malformed destination encodings without throwing and make PDF validation fixtures platform-native.
+- [ ] Verify School mode and protocol activation in the packaged native interface; cross-application School mode state remains unavailable.
 
 ## Current release boundary, measured 2026-08-31
 
