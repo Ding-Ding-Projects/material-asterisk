@@ -55,6 +55,7 @@ export class ServerSwitcher {
   activeServerId: string | undefined;
   loadState: 'loading' | 'loaded' | 'unavailable' = 'loading';
   loadReason: string | undefined;
+  lastError: string | undefined;
 
   constructor(request: Requester) {
     this.request = request;
@@ -95,7 +96,8 @@ export class ServerSwitcher {
     user?: string;
     knownHostsPath?: string;
   }): Promise<ServerSummary | undefined> {
-    const response = await this.request('server.inventory.add', { payload: input });
+    const response = await this.request('server.inventory.add', { payload: { ...input, activateIfEmpty: false } });
+    this.lastError = response?.ok ? undefined : response?.message ?? 'The control plane did not answer.';
     if (!response?.ok) return undefined;
     await this.load();
     return (response.data as { server: ServerSummary }).server;
@@ -109,11 +111,26 @@ export class ServerSwitcher {
     return true;
   }
 
-  async setActive(id: string): Promise<ServerSummary | undefined> {
-    const response = await this.request('server.inventory.set-active', { serverId: id });
+  async setActive(id: string, expectedActiveId?: string | null): Promise<ServerSummary | undefined> {
+    const response = await this.request('server.inventory.set-active', { serverId: id,
+      ...(expectedActiveId !== undefined ? { payload: { expectedActiveId } } : {}),
+    });
+    this.lastError = response?.ok ? undefined : response?.message ?? 'The control plane did not answer.';
     if (!response?.ok) return undefined;
     await this.load();
     return (response.data as { server: ServerSummary }).server;
+  }
+
+  async restoreActive(expectedActiveId: string, previousId?: string): Promise<boolean> {
+    const response = await this.request('server.inventory.set-active', {
+      ...(previousId ? { serverId: previousId } : {}),
+      payload: { expectedActiveId, ...(!previousId ? { clear: true } : {}) },
+    });
+    // A newer selection is authoritative; cancelling an older request must leave it alone.
+    const settled = response?.ok === true || response?.code === 'ACTIVE_SELECTION_CHANGED';
+    this.lastError = settled ? undefined : response?.message ?? 'The control plane did not answer.';
+    await this.load();
+    return settled;
   }
 
   async connect(id: string): Promise<ControlPlaneResponse | undefined> {

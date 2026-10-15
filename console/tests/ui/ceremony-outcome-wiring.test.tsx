@@ -9,9 +9,10 @@ function harness() {
   app.updater = { enqueueForceUpdate() {}, enqueueSetState(instance: any, partial: any, callback?: () => void) {
     instance.state = { ...instance.state, ...(typeof partial === 'function' ? partial(instance.state) : partial) }; callback?.();
   } };
-  app.state = { ...app.state, screen: 'servers', credits: 3, ceremonyOpen: true, ceremonyTitle: 'Delete 1 objects', ceremonyCmd: 'delete selected-row', selected: ['selected-row'] };
+  app.state = { ...app.state, screen: 'servers', credits: 3, ceremonyOpen: true, ceremonyTitle: 'Delete 1 objects', ceremonyCmd: 'delete selected-id', selected: ['selected-id'] };
   app.servers.servers = [{ id: 'selected-id', name: 'selected-row', connectionKind: 'wsl', wslDistribution: 'Selected', state: 'idle' }];
   app.target = { id: 'chosen-target', label: 'Chosen target', connected: true };
+  app.ceremony(app.state.ceremonyTitle, app.state.ceremonyCmd);
   const messages: string[] = [];
   app.fire = (title: string, body: string) => messages.push(`${title}: ${body}`);
   app.toast = () => {};
@@ -26,7 +27,7 @@ test('the actual unsupported bulk delete result cannot spend a confirmation cred
   assert.equal(app.state.credits, 3);
   assert.match(messages.join('\n'), /no verified write executor/u);
   assert.ok(!messages.some((message) => /credit spent|completed command/u.test(message)));
-  assert.deepEqual(app.state.selected, ['selected-row']);
+  assert.deepEqual(app.state.selected, ['selected-id']);
 });
 
 test('a credit is deducted once only after an awaited command succeeds', async () => {

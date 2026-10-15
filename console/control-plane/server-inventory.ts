@@ -282,7 +282,7 @@ export class ServerInventory {
    * kind, or a duplicate of a server already pointed at the same distribution/container/
    * host is refused rather than silently accepted and reconciled later.
    */
-  add(input: ServerRecordInput): ServerRecord {
+  add(input: ServerRecordInput, activateIfEmpty = true): ServerRecord {
     const normalized = normalizeInput(input);
     this.ensureUniqueTarget(normalized);
     const record: ServerRecord = {
@@ -292,7 +292,7 @@ export class ServerInventory {
       state: "idle",
     };
     this.servers.set(record.id, record);
-    if (!this.activeServerId) this.activeServerId = record.id;
+    if (!this.activeServerId && activateIfEmpty) this.activeServerId = record.id;
     this.persist();
     return record;
   }
@@ -344,11 +344,22 @@ export class ServerInventory {
   }
 
   /** Switches which server the rest of the interface acts on. Refuses an unknown id. */
-  setActive(id: string): ServerRecord {
+  setActive(id: string, expectedActiveId?: string | null): ServerRecord {
     const record = this.mustGet(id);
+    if (expectedActiveId !== undefined && this.activeServerId !== (expectedActiveId ?? undefined)) {
+      throw new ServerInventoryError("ACTIVE_SELECTION_CHANGED", "Another server selection superseded this request.");
+    }
     this.activeServerId = id;
     this.persist();
     return record;
+  }
+
+  /** Cancellation may clear only the selection made by its own in-flight request. */
+  clearActive(expectedActiveId: string): boolean {
+    if (this.activeServerId !== expectedActiveId) return false;
+    this.activeServerId = undefined;
+    this.persist();
+    return true;
   }
 
   /**

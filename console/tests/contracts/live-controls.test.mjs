@@ -16,6 +16,7 @@ import { test } from 'node:test';
  */
 const consoleRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..');
 const app = readFileSync(join(consoleRoot, 'app', 'renderer', 'src', 'App.tsx'), 'utf8');
+const connectionForm = readFileSync(join(consoleRoot, 'app', 'renderer', 'src', 'server-connection-form.ts'), 'utf8');
 const lines = app.split(/\r?\n/u);
 const hasLine = (needle) => lines.some((line) => line.includes(needle) && !line.trim().startsWith('//') && !line.trim().startsWith('*'));
 
@@ -50,10 +51,17 @@ test('the wizard closes before the deploy gate opens, so the gate is never hidde
   assert.ok(before.includes("this.set('onboardOpen', false);"), 'the wizard overlay must close right before the gate opens');
 });
 
-test('the wizard offers only targets the control plane connects to', () => {
-  assert.ok(hasLine("if (where?.options) where.options = where.options.filter((option) => option === 'This machine' || option === 'SSH');"));
-  assert.ok(hasLine("const whereMap: Record<string, string> = { 'This machine': 'wsl', SSH: 'remoteLinux' };"));
-  assert.ok(!/'Local Docker': 'local-docker'/u.test(app), 'the label-to-nowhere map must be gone');
+test('connection forms offer only the implemented WSL probe and visibly explain unsupported transports', () => {
+  assert.match(connectionForm, /label: 'Connection type \(WSL\)'[\s\S]*?options: \[local\]/u);
+  assert.match(connectionForm, /if \(label !== local\) throw new Error/u, 'stale unsupported form values must be refused');
+  assert.match(connectionForm, /connectionKind: 'wsl'/u);
+  assert.match(connectionForm, /SSH, Docker and native Linux connections are unavailable/u);
+  assert.ok(hasLine("connectionInput('ob', values, discovery)"));
+  assert.ok(hasLine('if (!await this.connectSavedServer(created, generation, selection)) return;'));
+  assert.ok(hasLine('if (!connectionVerified(response)) {'), 'saving must never stand in for a verified connection');
+  assert.ok(hasLine("if (server.connectionKind !== 'wsl') {"), 'existing unsupported profiles must be refused before probing');
+  assert.match(app, /onboardBody: `[^`]*\$\{CONNECTION_CAPABILITY_NOTE\}/u);
+  assert.match(app, /desc: `[^`]*\$\{CONNECTION_CAPABILITY_NOTE\}/u);
 });
 
 test('the IVR screen can write what it previews', () => {
@@ -62,10 +70,11 @@ test('the IVR screen can write what it previews', () => {
   assert.ok(hasLine("ctls: [{ id: 'i_apply', label: 'Write this IVR to extensions.conf', kind: 'segmented', value: 'Write', options: ['Write'], action: 'ivr-apply', info:"));
 });
 
-test('the servers screen no longer stores values nothing reads', () => {
-  assert.ok(hasLine("const offered = (SERVERS_BASE_GROUPS as Array<{ title?: string; ctls?: Array<{ id: string; options?: string[] }> }>).filter((group) => group.title !== 'Manager interface');"));
-  assert.ok(hasLine("if (kind?.options) kind.options = kind.options.filter((option) => option === 'Local' || option === 'SSH');"));
-  assert.ok(hasLine("const kindMap: Record<string, string> = { Local: 'wsl', SSH: 'remoteLinux' };"));
+test('server forms save every offered field and omit the unused Manager interface group', () => {
+  assert.ok(hasLine(".filter((group) => group.title !== 'Manager interface')"));
+  assert.ok(hasLine("connectionFormControls('sv', values, this.connectionDiscovery)"));
+  assert.ok(hasLine("this.servers.add(connectionInput('sv', values, discovery))"));
+  for (const field of ['kind', 'name', 'distribution']) assert.ok(connectionForm.includes(field));
   for (const id of ['sv_iface', 'sv_amiport', 'sv_tls', 'sv_forward', 'sv_watch', 'sv_readonly']) {
     assert.ok(!new RegExp(`values\\.${id}\\b|values\\['${id}'\\]`, 'u').test(app), `${id} must not be read anywhere, or the group must come back`);
   }

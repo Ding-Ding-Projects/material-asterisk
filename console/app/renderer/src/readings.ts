@@ -441,8 +441,10 @@ export function managerConnectionsStatus(reading: ViewReadings['managerConnectio
  * a made-up hostname on a connection screen is worse than an empty cell, because
  * somebody will try to use it.
  */
-export function serverRows(servers: ReadonlyArray<ServerRow>): string[][] {
-  return servers.map((server) => [
+export type ServerTableRow = string[] & { readonly serverId?: string };
+
+export function serverRows(servers: ReadonlyArray<ServerRow>): ServerTableRow[] {
+  return servers.map((server) => Object.defineProperty([
     server.name,
     ROUTE_LABELS[server.connectionKind] ?? server.connectionKind,
     serverTarget(server),
@@ -450,12 +452,13 @@ export function serverRows(servers: ReadonlyArray<ServerRow>): string[][] {
     /* The reason travels with the state. A server that is merely "unreachable" tells
      * nobody why, and the why is the only part anybody can act on. */
     server.reason ? `${STATE_LABELS[server.state] ?? server.state} — ${server.reason}` : STATE_LABELS[server.state] ?? server.state,
-  ]);
+  ], 'serverId', { value: server.id }));
 }
 
 /** The subset of a configured server this module needs. Kept local so the renderer's
  *  row-building does not depend on the control plane's own record shape. */
 export interface ServerRow {
+  id?: string;
   name: string;
   connectionKind: string;
   host?: string;

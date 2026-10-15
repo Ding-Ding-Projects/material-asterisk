@@ -265,7 +265,7 @@ function Template(v: any) {
                 ),
                 "Explain"
               ),
-              h("button", { onClick: fn(v.openWizard), style: sty(`background:#82D9A5; border:0; border-radius:999px; color:#00391F; font:inherit; font-size:13px; font-weight:500; padding:10px 20px 10px 15px; cursor:pointer; display:flex; align-items:center; gap:7px;`), className: "k-h12" },
+              h("button", { onClick: fn(v.openWizard), disabled: !!v.connectionBusy, style: sty(`background:#82D9A5; border:0; border-radius:999px; color:#00391F; font:inherit; font-size:13px; font-weight:500; padding:10px 20px 10px 15px; cursor:pointer; display:flex; align-items:center; gap:7px;`), className: "k-h12" },
                 h("span", { style: sty(`font-size:18px;`), className: "msym" },
                   "auto_fix_high"
                 ),
@@ -286,7 +286,7 @@ function Template(v: any) {
                     `${S(v.hiddenCount)} — switch to Expert in the title bar to see them with their real config keys.`
                   )
                 ),
-                h("button", { onClick: fn(v.openWizard), style: sty(`background:#9FF7C4; border:0; border-radius:999px; padding:10px 18px; color:#00391F; font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; flex:0 0 auto;`) },
+                h("button", { onClick: fn(v.openWizard), disabled: !!v.connectionBusy, style: sty(`background:#9FF7C4; border:0; border-radius:999px; padding:10px 18px; color:#00391F; font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; flex:0 0 auto;`) },
                   "Do it with a wizard"
                 )
               ) : null),
@@ -1159,7 +1159,7 @@ function Template(v: any) {
                         ) : null)
                     )))
                   ),
-                  h("button", { onClick: fn(v.openWizard), style: sty(`display:flex; align-items:center; gap:7px; background:#1B4D33; border:0; border-radius:999px; padding:10px 18px 10px 14px; color:#9FF7C4; font:inherit; font-size:13px; font-weight:500; cursor:pointer;`), className: "k-h3" },
+                  h("button", { onClick: fn(v.openWizard), disabled: !!v.connectionBusy, style: sty(`display:flex; align-items:center; gap:7px; background:#1B4D33; border:0; border-radius:999px; padding:10px 18px 10px 14px; color:#9FF7C4; font:inherit; font-size:13px; font-weight:500; cursor:pointer;`), className: "k-h3" },
                     h("span", { style: sty(`font-size:18px;`), className: "msym" },
                       "add"
                     ),
@@ -1762,7 +1762,7 @@ function Template(v: any) {
             h("button", { onClick: fn(v.closeInfo), style: sty(`flex:1; background:#82D9A5; border:0; border-radius:999px; padding:10px 0; color:#00391F; font:inherit; font-size:13px; font-weight:500; cursor:pointer;`) },
               "Got it"
             ),
-            h("button", { onClick: fn(v.openWizard), style: sty(`flex:1; background:transparent; border:1px solid #414942; border-radius:999px; padding:10px 0; color:#C4CBC2; font:inherit; font-size:13px; cursor:pointer;`), className: "k-h10" },
+            h("button", { onClick: fn(v.openWizard), disabled: !!v.connectionBusy, style: sty(`flex:1; background:transparent; border:1px solid #414942; border-radius:999px; padding:10px 0; color:#C4CBC2; font:inherit; font-size:13px; cursor:pointer;`), className: "k-h10" },
               "Walk me through it"
             )
           )
@@ -2130,7 +2130,7 @@ function Template(v: any) {
               h("button", { onClick: fn(v.onboardBack), style: sty(`background:transparent; border:1px solid #414942; border-radius:999px; padding:12px 24px; color:#C4CBC2; font:inherit; font-size:14px; cursor:pointer;`), className: "k-h10" },
                 "Back"
               ),
-              h("button", { onClick: fn(v.onboardNext), style: sty(`background:#82D9A5; border:0; border-radius:999px; padding:12px 30px; color:#00391F; font:inherit; font-size:14px; font-weight:500; cursor:pointer;`), className: "k-h12" },
+              h("button", { onClick: fn(v.onboardNext), disabled: !!v.onboardBusy, style: sty(`background:#82D9A5; border:0; border-radius:999px; padding:12px 30px; color:#00391F; font:inherit; font-size:14px; font-weight:500; cursor:pointer;`), className: "k-h12" },
                 S(v.onboardNextLabel)
               )
             )
@@ -6103,7 +6103,7 @@ class ConsoleShell extends DCLogic {
           const moduleLoaded = !!moduleRowData && moduleRowData[3] !== 'Not loaded';
           return decorate([
             { icon:isPromptRow ? 'play_arrow' : 'edit', label:(isPromptRow ? 'Audition ' : 'Edit ') + name + '…', hint:'↵', run:() => { close(); ((isAclRow || isPromptRow) && this.onPickRow) ? this.onPickRow(name) : this.setState({ wizardOpen:true, wizardStep:0 }); } },
-            { icon:'check_box', label:'Select this row', hint:'', run:() => { close(); this.set('selected', sel.indexOf(name) >= 0 ? sel : sel.concat([name])); } },
+            { icon:'check_box', label:'Select this row', hint:'', run:() => { close(); const rowId = sc.kind === 'servers' ? s.ctxServerId : name; if (rowId) this.set('selected', sel.indexOf(rowId) >= 0 ? sel : sel.concat([rowId])); } },
             { icon:'content_copy', label:'Duplicate', hint:'⌃D', run:() => { close(); this.bulk('Duplicated', [name]); } },
             ...(isModuleRow && this.onModuleAction ? (moduleLoaded ? [
               { icon:'refresh', label:'Reload ' + name, hint:'', run:() => { close(); this.onModuleAction('reload', name); } },
@@ -6123,7 +6123,7 @@ class ConsoleShell extends DCLogic {
               { icon:'arrow_downward', label:'Move rule down', hint:'', run:() => { close(); this.onMoveAclRule(name, 'down'); } }
             ] : []),
             ...(isModuleRow ? [] : [
-              { icon:'delete', label:'Delete ' + name, hint:'⌦', run:() => { close(); this.areYouSure('Delete ' + name, sc.kind === 'servers' ? 'This connection profile is removed from the console. It does not touch or reconfigure the target machine.' : (isAclRow ? 'This rule is removed from acl.conf on the target -- backed up first, and rolled back automatically if the write cannot be verified.' : (isPromptRow ? 'This file is removed from /var/lib/asterisk/sounds on the target -- irreversible, and the control plane confirms the removal before this dialog reports success.' : (isApiUserRow ? 'This [' + name + '] section is removed from manager.conf or ari.conf on the target, whichever one actually has it -- backed up first, and rolled back automatically if the write cannot be verified.' : 'This object and everything referencing it are removed. The four gates still apply after the minigame.'))), 3, () => (sc.kind === 'servers' && this.onRemoveServerRow ? this.onRemoveServerRow(name) : (isAclRow && this.onRemoveAclRule ? this.onRemoveAclRule(name) : (isPromptRow && this.onRemovePromptRow ? this.onRemovePromptRow(name) : (isApiUserRow && this.onRemoveApiUser ? this.onRemoveApiUser(name) : this.ceremony('Delete ' + name, 'delete ' + name)))))); } }
+              { icon:'delete', label:'Delete ' + name, hint:'⌦', run:() => { close(); this.areYouSure('Delete ' + name, sc.kind === 'servers' ? 'This connection profile is removed from the console. It does not touch or reconfigure the target machine.' : (isAclRow ? 'This rule is removed from acl.conf on the target -- backed up first, and rolled back automatically if the write cannot be verified.' : (isPromptRow ? 'This file is removed from /var/lib/asterisk/sounds on the target -- irreversible, and the control plane confirms the removal before this dialog reports success.' : (isApiUserRow ? 'This [' + name + '] section is removed from manager.conf or ari.conf on the target, whichever one actually has it -- backed up first, and rolled back automatically if the write cannot be verified.' : 'This object and everything referencing it are removed. The four gates still apply after the minigame.'))), 3, () => (sc.kind === 'servers' && this.onRemoveServerRow ? this.onRemoveServerRow(s.ctxServerId) : (isAclRow && this.onRemoveAclRule ? this.onRemoveAclRule(name) : (isPromptRow && this.onRemovePromptRow ? this.onRemovePromptRow(name) : (isApiUserRow && this.onRemoveApiUser ? this.onRemoveApiUser(name) : this.ceremony('Delete ' + name, 'delete ' + name)))))); } }
             ]),
             common[0], common[1]
           ]);
@@ -6162,7 +6162,7 @@ class ConsoleShell extends DCLogic {
             { icon:'content_copy', label:'Copy as configuration', hint:'⌃C', run:() => { close(); this.hostAction('copy-config', { what:'this configuration block' }); } },
             { icon:'data_object', label:'Open regex builder…', hint:'⌃R', run:() => this.setState({ ctxOpen:false, regexOpen:true, regexTarget:'nav', regexX:'300px', regexY:'120px' }) },
             { icon:'auto_fix_high', label:'Guided wizard for this screen', hint:'', run:() => this.setState({ ctxOpen:false, wizardOpen:true, wizardStep:0 }) },
-            { icon:'checklist', label:'Select all rows', hint:'⌃A', run:() => { close(); this.set('selected', (sc.table ? sc.table.rows.map(r => r[0]) : [])); } }
+            { icon:'checklist', label:'Select all rows', hint:'⌃A', run:() => { close(); this.set('selected', (sc.table ? sc.table.rows.map(r => r.serverId || r[0]) : [])); } }
           ]);
           if (s.ctxMenuId === 'View') return decorate([
             { icon:'dock_to_left', label:'Dock tabs left', hint:'', run:() => { close(); this.set('dock', 'left'); this.toastWithId('event-generated-event-source-6112-toast-0', 'Docked left'); } },
@@ -6193,7 +6193,7 @@ class ConsoleShell extends DCLogic {
         return decorate([
           { icon:'data_object', label:'Search this screen with regex…', hint:'⌃R', run:() => this.setState({ ctxOpen:false, regexOpen:true, regexTarget:'nav', regexX:s.ctxX, regexY:s.ctxY }) },
           { icon:'auto_fix_high', label:'Guided wizard for this screen', hint:'', run:() => this.setState({ ctxOpen:false, wizardOpen:true, wizardStep:0 }) },
-          { icon:'checklist', label:'Select all rows', hint:'⌃A', run:() => { close(); this.set('selected', (sc.table ? sc.table.rows.map(r => r[0]) : [])); } },
+          { icon:'checklist', label:'Select all rows', hint:'⌃A', run:() => { close(); this.set('selected', (sc.table ? sc.table.rows.map(r => r.serverId || r[0]) : [])); } },
           { icon:'add', label:'New tab here', hint:'⌃T', run:() => { close(); this.setState({ tabs:s.tabs.concat([s.screen]) }); } },
           { icon:'history', label:'Version history', hint:'', run:() => { close(); this.openScreen('history'); } },
           { icon:'notifications', label:'Notification centre', hint:'', run:() => { close(); this.openScreen('notifications'); } },

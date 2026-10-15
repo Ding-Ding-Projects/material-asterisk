@@ -18,7 +18,8 @@ let source = await readFile(generated, 'utf8');
 
 const templateMarker = '      (v.isText ? h("div", { style: sty(`display:flex; align-items:center; gap:10px; background:#141A15; border:1px solid #414942; border-radius:10px; padding:10px 14px;`) },';
 const stateMarker = "      isText: c.kind === 'text',";
-const extensionMarker = "isEditableText: c.kind === 'text' && String(c.id || '').startsWith('pbxadm:'),";
+const editableIdExpression = "(String(c.id || '').startsWith('pbxadm:') || /^(sv|ob)_name$/.test(String(c.id || '')))";
+const extensionMarker = `isEditableText: c.kind === 'text' && ${editableIdExpression},`;
 
 if (!source.includes(templateMarker)) {
   throw new Error('PBX M3 extension could not find the compiled read-only text-control template marker.');
@@ -41,7 +42,7 @@ const editableTemplate = `      (v.isEditableText ? h("div", { style: sty(\`disp
 source = source.replace(templateMarker, `${editableTemplate}${templateMarker}`);
 source = source.replace(
   stateMarker,
-  `      ${extensionMarker}\n      onEditableTextInput: (e) => { if (c.set) c.set(e.target.value); },\n      isText: c.kind === 'text' && !String(c.id || '').startsWith('pbxadm:'),`,
+  `      ${extensionMarker}\n      onEditableTextInput: (e) => { if (c.set) c.set(e.target.value); },\n      isText: c.kind === 'text' && !${editableIdExpression},`,
 );
 
 await writeFile(path, source, 'utf8');
@@ -229,5 +230,24 @@ if (!windowChrome || (windowChrome[0].match(/"data-window-button"/gu) ?? []).len
 let nativeChrome = windowChrome[0].replace(/h\("div", \{ style: sty\(`(width:34px;[^`]+)`\), onClick: fn\(v\.__window\?\.(minimize|toggleMaximize|close)\), "data-window-button": ``, title: `(Minimize|Maximize|Close)`/gu,
   (_whole, style, action, label) => 'h("button", { type: `button`, "aria-label": `' + label + '`, style: sty(`background:transparent; border:0; padding:0; font:inherit; cursor:pointer; ' + style + '`), onClick: fn(v.__window?.' + action + '), "data-window-button": ``, title: `' + label + '`');
 shell = shell.replace(windowChrome[0], '          (v.hasWindowControls ? ' + nativeChrome.trimStart() + ' : null)');
+// Server names are presentation only. Context deletion retains the exact row ID
+// captured when its menu opened, even if the inventory changes before confirmation.
+const serverDeleteMarker = 'this.onRemoveServerRow(name)';
+if (shell.split(serverDeleteMarker).length !== 2) throw new Error('Expected exactly one server row deletion binding.');
+shell = shell.replace(serverDeleteMarker, 'this.onRemoveServerRow(s.ctxServerId)');
+const serverSelectMarker = "this.set('selected', sel.indexOf(name) >= 0 ? sel : sel.concat([name]));";
+if (shell.split(serverSelectMarker).length !== 2) throw new Error('Expected exactly one contextual row selection binding.');
+shell = shell.replace(serverSelectMarker, "const rowId = sc.kind === 'servers' ? s.ctxServerId : name; if (rowId) this.set('selected', sel.indexOf(rowId) >= 0 ? sel : sel.concat([rowId]));");
+const serverSelectAllMarker = "this.set('selected', (sc.table ? sc.table.rows.map(r => r[0]) : []));";
+if (shell.split(serverSelectAllMarker).length !== 3) throw new Error('Expected exactly two contextual select-all bindings.');
+shell = shell.replaceAll(serverSelectAllMarker, "this.set('selected', (sc.table ? sc.table.rows.map(r => r.serverId || r[0]) : []));");
+// Pending connection submissions cannot create duplicate inventory entries.
+for (const [before, after] of [
+  ['onClick: fn(v.onboardNext),', 'onClick: fn(v.onboardNext), disabled: !!v.onboardBusy,'],
+  ['onClick: fn(v.openWizard),', 'onClick: fn(v.openWizard), disabled: !!v.connectionBusy,'],
+]) {
+  if (!shell.includes(before)) throw new Error('Connection busy extension marker missing: ' + before);
+  shell = shell.replaceAll(before, after);
+}
 await writeFile(consolePath, shell, 'utf8');
 console.log(`extended compiled console interactions -> ${consolePath}`);

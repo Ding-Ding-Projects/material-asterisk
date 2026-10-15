@@ -56,7 +56,8 @@ import {
   registerLocalHistoryScreen,
 } from './local-history-screen';
 import type { ControlPlaneResponse, PbxReadView } from '../../../shared/control-plane';
-import { ServerSwitcher } from './servers';
+import { ServerSwitcher, type ServerSummary } from './servers';
+import { CONNECTION_CAPABILITY_NOTE, assertConnectionType, connectionFormControls, connectionInput, type ConnectionControl, type TargetDiscoveryData } from './server-connection-form';
 import { buildEndpointDraft, endpointDocument, PJSIP_RESOURCE, WIZARD_CONTROLS } from './endpoint-create';
 import {
   applyControlValues, controlValuesFor, editDocument, findEndpoint, removeEndpoint,
@@ -356,6 +357,7 @@ function usableDundiPeerName(value: unknown): string | undefined {
 /** The generated shell is untyped; this is the surface the console builds on. */
 interface Shell {
   renderVals(): Record<string, unknown>;
+  buildCtl(control: ConnectionControl): Record<string, unknown>;
   /** Every control change routes through here, which is why it is the one place a
    *  cross-cutting setting can be noticed without touching a compiled file. */
   setVal: (control: ControlRef, value: unknown) => void;
@@ -860,6 +862,7 @@ export class App extends Base {
         this.toast(`That destination is unavailable while ${schoolModeName(this.durableStorage.storage)} is on.`);
         return;
       }
+      this.invalidateConnection();
       baseOpenScreen(id);
     };
     this.baseToast = this.toast as (message: string) => void;
@@ -876,14 +879,6 @@ export class App extends Base {
      * result, so an arrow-key nudge on a live node that has never been dragged threw. The
      * live canvas records its laid-out positions in canvasLayoutBase for exactly this. */
     (this as unknown as { moveNode: (id: string, dx: number, dy: number) => void }).moveNode = this.moveLiveNode;
-    /* The wizard's target step offered Docker targets the control plane cannot connect to
-     * or deploy onto (only `wsl` and `remoteLinux` are wired). Offering a choice that can
-     * only end in a refusal is the decorative control this console refuses to ship, so the
-     * options are the two that work until a Docker path exists. */
-    for (const step of ONBOARD as Array<{ ctls?: Array<{ id: string; options?: string[] }> }>) {
-      const where = step.ctls?.find((c) => c.id === 'ob_where');
-      if (where?.options) where.options = where.options.filter((option) => option === 'This machine' || option === 'SSH');
-    }
     this.baseSetState = this.setState.bind(this) as (update: Record<string, unknown>, callback?: () => void) => void;
     this.setState = this.boundedOverlaySetState;
   }
@@ -928,9 +923,33 @@ export class App extends Base {
    *  a confirmation, so it is classified 'question' unconditionally rather than through
    *  the title-based heuristic `fire`/`toast`/`showInfo` fall back to -- there is no
    *  ambiguity here to resolve by guessing. */
+  private sureGeneration = 0;
+  private sureConfirmation: { generation: number; targetId: string; action: () => void } | undefined;
+
+  private invalidateSure(): void {
+    this.sureGeneration++;
+    this.sureConfirmation = undefined;
+  }
+
+  private acceptSure(generation: number): void {
+    const confirmation = this.sureConfirmation;
+    if (!confirmation || confirmation.generation !== generation) return;
+    // Consume synchronously, before React can defer the close update or a callback
+    // can open a replacement dialog. Repeated and retained handlers are inert.
+    this.invalidateSure();
+    this.setState({ sureOpen: false, sureHits: 0, sureCell: -1 });
+    if (this.target.id !== confirmation.targetId) {
+      this.fire('Target changed', 'The selected server changed. Review this action again on the intended server.');
+      return;
+    }
+    confirmation.action();
+  }
+
   private styledAreYouSure = (title: string, body: string, seconds: number, onConfirm: () => void): void => {
     const styled = styledDialog(this.messageStorage, this.currentCopyLanguage(), 'question', title, body);
-    this.baseAreYouSure(styled.heading, styled.body, seconds, onConfirm);
+    const generation = ++this.sureGeneration;
+    this.sureConfirmation = { generation, targetId: this.target.id, action: onConfirm };
+    this.baseAreYouSure(styled.heading, styled.body, seconds, () => this.acceptSure(generation));
   };
 
   /** Wraps `showInfo`. Only the title and body go through the pipeline; `plain` is the
@@ -1013,6 +1032,19 @@ export class App extends Base {
   private boundedOverlaySetState = (update: Record<string, unknown>, callback?: () => void): void => {
     const sanitize = (update: Record<string, unknown> | null): Record<string, unknown> | null => {
       if (update === null) return null;
+      // Navigation, wizard interruption and a new confirmation supersede pending
+      // connection work, including work still waiting for discovery or inventory.
+      if (this.connectionBusy && (typeof update.screen === 'string'
+        || update.onboardOpen === false || typeof update.onboardStep === 'number'
+        || update.sureOpen === true || update.ceremonyOpen === true)) {
+        this.invalidateConnection();
+      }
+      if (update.ceremonyOpen === true) update = { ...update,
+        ceremonyGeneration: ++this.ceremonyGeneration,
+        ceremonyTargetId: this.target.id, ceremonyTargetConnected: this.target.connected,
+        ceremonyScreen: (this.state as { screen: string }).screen,
+      };
+      if (update.ceremonyOpen === false) this.ceremonyGeneration++;
       const hidden = new Set(hiddenScreenKeys(this.durableStorage.storage));
       if (hidden.size > 0) {
         update = { ...update };
@@ -1029,7 +1061,10 @@ export class App extends Base {
       }
       // Acceptance captures the action before closing; closed overlays must not
       // retain that callback or any credential-bearing dialog content.
-      if (update.sureOpen === false) update = { ...update, sureAction: null };
+      if (update.sureOpen === false) {
+        this.invalidateSure();
+        update = { ...update, sureAction: null };
+      }
       if (update.infoOpen === false) update = { ...update, infoTitle: '', infoBody: '', infoPlain: '', infoDoc: null, infoKey: '' };
       if (typeof update.ctxX === 'string' && typeof update.ctxY === 'string') {
         const clamped = this.clampOverlayPixelPosition(update.ctxX, update.ctxY, 274, 560);
@@ -1067,6 +1102,9 @@ export class App extends Base {
   );
 
   private screenTrackingSet = (key: string, value: unknown): void => {
+    if (key === 'sureOpen' && value === false) this.invalidateSure();
+    if (key === 'ceremonyOpen' && value === false) this.ceremonyGeneration++;
+    if (key === 'screen' || key === 'onboardStep' || (key === 'onboardOpen' && value === false)) this.invalidateConnection();
     if (key === 'screen' && typeof value === 'string') this.rememberLastScreen(value);
     /* Read before the write and compared, for the same reason the shell's own value
      * writer compares: re-picking the canvas tool that is already active is not a
@@ -1446,6 +1484,8 @@ export class App extends Base {
   }
 
   componentWillUnmount() {
+    this.invalidateConnection();
+    this.invalidateSure();
     super.componentWillUnmount?.();
     this.overlayFocusObserver?.disconnect();
     this.overlayFocusObserver = undefined;
@@ -1490,7 +1530,7 @@ export class App extends Base {
 
   /** Bounded, allowlisted discovery through the preload bridge. Never a shell command. */
   private discover = async () => {
-    if (this.discoveryPending) return;
+    if (this.discoveryPending || this.connectionBusy) return;
     this.discoveryPending = true;
     this.oneClickRunning = true;
     this.oneClickStage = 'Reading local targets';
@@ -1512,7 +1552,8 @@ export class App extends Base {
       this.forceUpdate();
       return;
     }
-    const data = response.data as { wsl?: string[] | { unavailable: string } };
+    const data = response.data as TargetDiscoveryData;
+    this.connectionDiscovery = data;
     const distributions = Array.isArray(data.wsl) ? data.wsl : [];
     if (!distributions.length) {
       /* Finding nothing was a dead end: it reported that no target existed and stopped,
@@ -1877,20 +1918,108 @@ export class App extends Base {
     };
   }
 
+  private connectionDiscovery: TargetDiscoveryData = {};
+  private connectionBusy = false;
+  private connectionGeneration = 0;
+  private connectionStatus = 'Add a connection, then select its row to verify and connect.';
+  private onboardSavedConnection: { key: string; server: ServerSummary } | undefined;
+
+  private invalidateConnection(): void {
+    this.connectionGeneration++;
+    if (this.connectionBusy) this.connectionStatus = 'Connection check cancelled. Select a saved connection to retry.';
+  }
+
+  private async restoreConnectionSelection(expectedActiveId: string, previousId?: string): Promise<void> {
+    try {
+      if (await this.servers.restoreActive(expectedActiveId, previousId)) return;
+      this.fire('Selection needs attention', this.servers.lastError ?? 'The previous inventory selection could not be restored.');
+    } catch (error) {
+      this.fire('Selection needs attention', error instanceof Error ? error.message : 'The previous inventory selection could not be restored.');
+    }
+  }
+
   private prepareServersScreen(): void {
     const screens = SCREENS as unknown as Record<string, { groups?: unknown[] }>;
-    /* The design's "Manager interface" group (AMI/ARI interface, manager port, TLS, tunnel
-     * forwarding, auto-reconnect, read-only) described a manager connection this console
-     * does not make: every reading and write goes through the target's own CLI over WSL.
-     * Its six controls stored values nothing read, so the group is not offered. */
-    const offered = (SERVERS_BASE_GROUPS as Array<{ title?: string; ctls?: Array<{ id: string; options?: string[] }> }>).filter((group) => group.title !== 'Manager interface');
-    /* Same reason as the wizard's target step: only the kinds the control plane connects to
-     * are offered, so no choice on this form can only end in a refusal. */
-    for (const group of offered) {
-      const kind = group.ctls?.find((c) => c.id === 'sv_kind');
-      if (kind?.options) kind.options = kind.options.filter((option) => option === 'Local' || option === 'SSH');
-    }
+    const values = (this.state as { values: Record<string, unknown> }).values;
+    const offered = (SERVERS_BASE_GROUPS as Array<{ title?: string; ctls?: unknown[] }>).filter((group) => group.title !== 'Manager interface').map((group) =>
+      group.title === 'Route' ? { ...group, desc: `${this.connectionBusy ? 'Checking the connection…' : this.connectionStatus} ${CONNECTION_CAPABILITY_NOTE}`, ctls: connectionFormControls('sv', values, this.connectionDiscovery) } : group);
     screens.servers!.groups = [...offered, this.runtimeMaintenanceGroup()];
+  }
+
+  private async readConnectionDiscovery(generation = this.connectionGeneration): Promise<TargetDiscoveryData> {
+    const response = await this.request('server.list');
+    if (!response?.ok) throw new Error(response?.message ?? 'The control plane did not answer discovery.');
+    const discovery = response.data as TargetDiscoveryData;
+    if (generation === this.connectionGeneration) {
+      this.connectionDiscovery = discovery;
+      this.forceUpdate();
+    }
+    return discovery;
+  }
+
+  private async connectSavedServer(server: ServerSummary, generation = ++this.connectionGeneration, selection = { id: this.servers.activeServerId }): Promise<boolean> {
+    if (generation !== this.connectionGeneration) return false;
+    const previousActiveId = selection.id;
+    this.connectionStatus = `Verifying ${server.name}…`;
+    this.forceUpdate();
+    const response = await this.servers.connect(server.id);
+    if (generation !== this.connectionGeneration) return false;
+    await this.servers.load();
+    if (generation !== this.connectionGeneration) return false;
+    if (!connectionVerified(response)) {
+      this.connectionStatus = `${server.name} is saved but not connected: ${connectionFailureReason(response)}`;
+      this.fire('Not connected', this.connectionStatus);
+      this.forceUpdate();
+      return false;
+    }
+    let active: ServerSummary | undefined;
+    try {
+      active = await this.servers.setActive(server.id, previousActiveId ?? null);
+    } catch (error) {
+      // A failed IPC reply does not prove that the inventory mutation failed.
+      await this.restoreConnectionSelection(server.id, previousActiveId);
+      throw error;
+    }
+    if (generation !== this.connectionGeneration) {
+      // An activation already dispatched over IPC can finish after cancellation.
+      // Keep submissions serialized until the previous inventory selection is restored.
+      await this.restoreConnectionSelection(server.id, previousActiveId);
+      return false;
+    }
+    if (!active) {
+      const reason = this.servers.lastError ?? 'The control plane did not answer.';
+      await this.restoreConnectionSelection(server.id, previousActiveId);
+      this.connectionStatus = `${server.name} answered, but selecting it failed: ${reason}`;
+      this.fire('Not selected', this.connectionStatus);
+      return false;
+    }
+    this.target = { id: server.id, label: server.name, detail: 'Connection verified', connected: true };
+    this.readings = {};
+    this.configs = {};
+    this.seeded.clear();
+    this.canvasReadings = undefined;
+    this.canvasExtensionsConf = undefined;
+    this.connectionStatus = `${server.name}: connection verified.`;
+    this.fire('Connected', this.connectionStatus);
+    this.forceUpdate();
+    return true;
+  }
+
+  private async onConnectServerRow(id: string): Promise<void> {
+    if ((this.state as { screen: string }).screen !== 'servers') return;
+    if (this.connectionBusy) return;
+    if (this.discoveryPending) { this.fire('Discovery in progress', 'Wait for local target discovery to finish, then retry this connection.'); return; }
+    const server = this.servers.servers.find((candidate) => candidate.id === id);
+    if (!server) { this.fire('Not found', 'That connection is no longer in the inventory.'); return; }
+    if (server.connectionKind !== 'wsl') {
+      this.fire('Not connected', `${server.name} remains saved. Its ${server.connectionKind} connection is unavailable in this build. ${CONNECTION_CAPABILITY_NOTE}`);
+      return;
+    }
+    this.connectionBusy = true;
+    const generation = ++this.connectionGeneration;
+    try { await this.connectSavedServer(server, generation); }
+    catch (error) { if (generation === this.connectionGeneration) this.fire('Not connected', error instanceof Error ? error.message : 'The connection check failed.'); }
+    finally { this.connectionBusy = false; this.forceUpdate(); }
   }
 
   // ---------------------------------------------------------------- local history
@@ -3751,6 +3880,7 @@ What you can do: ${offered}.` : ''}`);
    *  the language one on its way past, applies it live and persists it, then hands the
    *  change on unchanged so the control behaves like every other control. */
   private languageAwareSetVal = (control: ControlRef, value: unknown): void => {
+    if (this.connectionBusy && /^(sv|ob)_/u.test(control?.id ?? '')) this.invalidateConnection();
     /* Momentum's idle clock and time awareness's "since anything changed" reading both
      * read this one field. Every real control passes through here, so this is the one
      * place that can honestly say something changed -- updated before any branch below
@@ -4165,44 +4295,36 @@ What you can do: ${offered}.` : ''}`);
   /** Reads the already-bound `sv_*` connection controls straight out of component state —
    *  the same values the form on screen is showing — and adds the configured server. */
   onAddServer = async (): Promise<void> => {
-    const values = (this.state as { values?: Record<string, unknown> }).values ?? {};
-    const kindLabel = String(values.sv_kind ?? 'Local');
-    /* Control-plane connection kinds (contracts.ts). The earlier 'local'/'ssh' labels matched
-     * nothing there, so every server added from this form was refused on connect. */
-    const kindMap: Record<string, string> = { Local: 'wsl', SSH: 'remoteLinux' };
-    const connectionKind = kindMap[kindLabel];
-    if (!connectionKind) {
-      this.fire('Not available yet', `${kindLabel} is not a connection this console can make: only this machine's WSL runtime and a Linux host over SSH are wired.`);
-      return;
-    }
-    const host = String(values.sv_host ?? '');
-    const input: { name: string; connectionKind: string; wslDistribution?: string; host?: string; user?: string; port?: number } = {
-      name: host || `connection-${this.servers.servers.length + 1}`,
-      connectionKind,
-    };
-    if (connectionKind !== 'wsl') input.host = host;
-    if (connectionKind === 'remoteLinux') {
-      input.user = String(values.sv_user ?? '');
-      input.port = Number(values.sv_sshport ?? 22);
-    }
-    const created = await this.servers.add(input as never);
+    if (this.connectionBusy) return;
+    if (this.discoveryPending) { this.fire('Discovery in progress', 'Wait for local target discovery to finish, then retry this connection.'); return; }
+    this.connectionBusy = true;
+    const generation = ++this.connectionGeneration;
     this.forceUpdate();
-    if (created) {
+    try {
+      const values = { ...(this.state as { values: Record<string, unknown> }).values };
+      assertConnectionType('sv', values);
+      const discovery = await this.readConnectionDiscovery(generation);
+      if (generation !== this.connectionGeneration) return;
+      const created = await this.servers.add(connectionInput('sv', values, discovery));
+      if (generation !== this.connectionGeneration) return;
+      if (!created) { this.fire('Not added', this.servers.lastError ?? 'The control plane did not accept that connection.'); return; }
       this.onUserMutation('server-add');
-      this.fire('Connection added', `${created.name} is now in the server list below.`);
-    }
-    else this.fire('Not added', 'The control plane did not accept that connection.');
+      this.connectionStatus = `${created.name} is saved. Select its row to verify and connect.`;
+      this.fire('Connection added', this.connectionStatus);
+    } catch (error) {
+      if (generation === this.connectionGeneration) this.fire('Not added', error instanceof Error ? error.message : 'The connection could not be saved.');
+    } finally { this.connectionBusy = false; this.forceUpdate(); }
   };
 
   /** The design has already run this past `areYouSure` before calling it. */
-  onRemoveServerRow = async (name: string): Promise<void> => {
-    const server = this.servers.servers.find((s) => s.name === name);
-    if (!server) { this.fire('Not found', `${name} is no longer in the server list.`); return; }
+  onRemoveServerRow = async (id: string): Promise<void> => {
+    const server = this.servers.servers.find((s) => s.id === id);
+    if (!server) { this.fire('Not found', 'That connection is no longer in the server list.'); return; }
     const removed = await this.servers.remove(server.id);
     this.forceUpdate();
     if (removed) {
       this.onUserMutation('server-remove');
-      this.fire('Connection removed', `${name} was removed from the server list.`);
+      this.fire('Connection removed', `${server.name} was removed from the server list.`);
     }
     else this.fire('Not removed', 'The control plane did not accept that removal.');
   };
@@ -4271,34 +4393,34 @@ What you can do: ${offered}.` : ''}`);
    *  exact server-add path the Deploy & servers screen already uses for real, rather
    *  than a second implementation that could drift from it. */
   private async onboardConnect(): Promise<void> {
-    const values = (this.state as { values?: Record<string, unknown> }).values ?? {};
-    const whereLabel = String(values.ob_where ?? 'This machine');
-    /* These are the control plane's own connection kinds (contracts.ts). The earlier labels
-     * ('local', 'ssh', …) matched nothing there, so every wizard connection was refused. */
-    const whereMap: Record<string, string> = { 'This machine': 'wsl', SSH: 'remoteLinux' };
-    const connectionKind = whereMap[whereLabel];
-    if (!connectionKind) {
-      this.fire('Not available yet', `${whereLabel} is not a target this console can connect to: only this machine's WSL runtime and a Linux host over SSH are wired. Docker targets are tracked separately.`);
-      return;
-    }
-    const host = String(values.ob_host ?? '');
-    const input: { name: string; connectionKind: string; host?: string } = {
-      name: host || `connection-${this.servers.servers.length + 1}`,
-      connectionKind,
-    };
-    if (connectionKind !== 'local') input.host = host;
-    const created = await this.servers.add(input as never);
+    if (!(this.state as { onboardOpen: boolean }).onboardOpen) return;
+    if (this.connectionBusy) return;
+    if (this.discoveryPending) { this.fire('Discovery in progress', 'Wait for local target discovery to finish, then retry this connection.'); return; }
+    this.connectionBusy = true;
+    const generation = ++this.connectionGeneration;
+    const selection = { id: this.servers.activeServerId };
     this.forceUpdate();
-    if (created) {
-      this.onUserMutation('onboarding-connect');
-      this.fire('Connected', `${created.name} was added to the server list and is available on Deploy & servers.`);
-      void this.discover();
+    try {
+      const values = { ...(this.state as { values: Record<string, unknown> }).values };
+      assertConnectionType('ob', values);
+      const discovery = await this.readConnectionDiscovery(generation);
+      if (generation !== this.connectionGeneration) return;
+      const input = connectionInput('ob', values, discovery);
+      const key = JSON.stringify(input);
+      const created = this.onboardSavedConnection?.key === key
+        ? this.onboardSavedConnection.server
+        : await this.servers.add(input);
+      if (created) this.onboardSavedConnection = { key, server: created };
+      if (generation !== this.connectionGeneration) return;
+      if (!created) { this.fire('Not connected', this.servers.lastError ?? 'The control plane did not accept that connection.'); return; }
+      this.onUserMutation('onboarding-connection-add');
+      if (!await this.connectSavedServer(created, generation, selection)) return;
+      this.connectionBusy = false;
       this.set('onboardOpen', false);
-      this.set('screen', 'servers');
-      this.set('railId', 'app');
-    } else {
-      this.fire('Not connected', 'The control plane did not accept that connection. Nothing was written.');
-    }
+      this.openScreen('servers');
+    } catch (error) {
+      if (generation === this.connectionGeneration) this.fire('Not connected', error instanceof Error ? error.message : 'The connection check failed.');
+    } finally { this.connectionBusy = false; this.forceUpdate(); }
   }
 
   /** The "deploy a new server" half. Ensures a target exists (provisioning the local
@@ -4463,6 +4585,7 @@ What you can do: ${offered}.` : ''}`);
    * loaded and the toast was simply untrue.
    */
   onPickRow = (name: string): void => {
+    if ((this.state as { screen: string }).screen === 'servers') { void this.onConnectServerRow(name); return; }
     if ((this.state as { screen: string }).screen === 'security') { this.onPickAclRow(name); return; }
     /* A prompt row names a real file, not a section to reload into an editor -- there is
      * nothing below the table for it to populate. Row-pick plays it back instead, exactly
@@ -4733,8 +4856,9 @@ What you can do: ${offered}.` : ''}`);
     const table = screens[screen]?.table;
     const cols = table?.cols ?? [];
     const rows = table?.rows ?? [];
-    const context = { collectionId: screen, queryKey: JSON.stringify(rows.map((row) => row[0])) };
-    const items: SelectionItem[] = rows.map((row) => ({ id: row[0] }));
+    const ids = rows.map((row) => screen === 'servers' ? (row as string[] & { serverId?: string }).serverId ?? '' : row[0]);
+    const context = { collectionId: screen, queryKey: JSON.stringify(ids) };
+    const items: SelectionItem[] = ids.map((id) => ({ id }));
     const selection = { ...createSelection(context), selectedIds: new Set(sel) };
     const collection: BulkCollectionSnapshot<SelectionItem> = { context, items };
     const action: BulkAction<SelectionItem> = verb === 'Exported'
@@ -4754,7 +4878,7 @@ What you can do: ${offered}.` : ''}`);
        * before the browser side effect, and the loss disclosure follows the exact
        * same chosen format. */
       const selectedRecords = plan.affected.map((item) => {
-        const row = rows.find((candidate) => candidate[0] === item.id) ?? [];
+        const row = rows[ids.indexOf(item.id)] ?? [];
         return Object.fromEntries(cols.map((column, index) => [column, row[index] ?? ''])) as Record<string, unknown>;
       });
       const formats = suitableFormats(selectedRecords);
@@ -4797,7 +4921,7 @@ What you can do: ${offered}.` : ''}`);
     const screens = SCREENS as Record<string, { table?: { rows: string[][] } }>;
     const table = screens[screen]?.table;
     if (!table) return {};
-    const ids = table.rows.map((r) => r[0]);
+    const ids = table.rows.map((row) => screen === 'servers' ? (row as string[] & { serverId?: string }).serverId ?? '' : row[0]);
     const context = { collectionId: screen, queryKey: JSON.stringify(ids) };
     const items: SelectionItem[] = ids.map((id) => ({ id }));
     const state = this.state as { selected?: string[] };
@@ -4806,14 +4930,32 @@ What you can do: ${offered}.` : ''}`);
     const apply = (next: SelectionState) => this.set('selected', [...next.selectedIds]);
 
     const rows = Array.isArray(values.tableRows) ? (values.tableRows as Array<Record<string, unknown>>) : [];
-    const tableRows = rows.map((row, i) => ({
-      ...row,
-      toggle: (e?: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean }) => {
-        const modifiers = { shift: !!e?.shiftKey, ctrl: !!(e?.ctrlKey || e?.metaKey) };
-        const change = toggleSelection(sel, items[i]!, items, { range: !!e?.shiftKey, additive: !!(e?.ctrlKey || e?.metaKey) });
-        apply(change.state);
-      },
-    }));
+    const tableRows = rows.map((row, i) => {
+      // Capture the immutable inventory identity at render time. Display names are
+      // neither unique nor stable, and a later inventory refresh can reorder rows.
+      const serverId = screen === 'servers' ? ids[i] : undefined;
+      const serverLabel = screen === 'servers' ? table.rows[i][0] : undefined;
+      const selected = sel.selectedIds.has(ids[i]);
+      return {
+        ...row,
+        ...(serverId ? {
+          bg: selected ? '#1D2A22' : 'transparent',
+          border: selected ? '#82D9A5' : '#8B938C',
+          checkBg: selected ? '#82D9A5' : 'transparent',
+          checkIcon: selected ? 'check' : '',
+          pick: () => { void this.onConnectServerRow(serverId); },
+          ctx: (event: { preventDefault(): void; clientX: number; clientY: number }) => {
+            event.preventDefault();
+            this.setState({ ctxOpen: true, ctxX: `${event.clientX}px`, ctxY: `${event.clientY}px`, ctxTarget: serverLabel, ctxKind: 'row', ctxServerId: serverId });
+          },
+        } : {}),
+        toggle: (e?: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean }) => {
+          const modifiers = { shift: !!e?.shiftKey, ctrl: !!(e?.ctrlKey || e?.metaKey) };
+          const change = toggleSelection(sel, items[i]!, items, { range: !!e?.shiftKey, additive: !!(e?.ctrlKey || e?.metaKey) });
+          apply(change.state);
+        },
+      };
+    });
 
     const existingActions = Array.isArray(values.bulkActions)
       ? (values.bulkActions as Array<{ icon: string; label: string; run: () => void }>)
@@ -9213,9 +9355,20 @@ It is shown once. The far end needs it to register.`);
    * decorative execution route.
    */
   private ceremonyPending = false;
+  private ceremonyGeneration = 0;
 
-  private async executeCeremonyCommand(): Promise<boolean> {
-    if (this.ceremonyPending) return false;
+  private async executeCeremonyCommand(generation = this.ceremonyGeneration): Promise<boolean> {
+    if (generation !== this.ceremonyGeneration) return false;
+    if (this.ceremonyPending || !(this.state as { ceremonyOpen?: boolean }).ceremonyOpen) return false;
+    const confirmation = this.state as { ceremonyGeneration?: number; ceremonyTargetId?: string; ceremonyTargetConnected?: boolean; ceremonyScreen?: string; screen: string };
+    if (confirmation.ceremonyGeneration !== generation) return false;
+    if (!confirmation.ceremonyTargetId || confirmation.ceremonyTargetId !== this.target.id || confirmation.ceremonyScreen !== confirmation.screen) {
+      this.set('ceremonyOpen', false);
+      this.fire('Not run', 'The selected server or screen changed. Review this action again on the intended server.');
+      return false;
+    }
+    // Consume before dispatch, independent of when React applies the close update.
+    this.ceremonyGeneration++;
     this.ceremonyPending = true;
     try {
     const title = String((this.state as { ceremonyTitle?: string }).ceremonyTitle ?? '');
@@ -9229,8 +9382,8 @@ It is shown once. The far end needs it to register.`);
 
     const ok = await runCeremonyCommand({
       command,
-      connected: this.target.connected,
-      serverId: this.target.id,
+      connected: confirmation.ceremonyTargetConnected === true && this.target.connected,
+      serverId: confirmation.ceremonyTargetId,
       request: (action, extra) => this.request(action, extra) as Promise<CeremonyResponse | undefined>,
       toast: (message) => this.toast(message),
       fire: (noticeTitle, body) => this.fire(noticeTitle, body),
@@ -9249,6 +9402,10 @@ It is shown once. The far end needs it to register.`);
 
   renderVals() {
     const screen = (this.state as { screen: string }).screen;
+    const connectionGeneration = this.connectionGeneration;
+    const onboardStep = (this.state as { onboardStep: number }).onboardStep;
+    const ceremonyGeneration = this.ceremonyGeneration;
+    const sureGeneration = this.sureGeneration;
     this.applyRows(screen);
     this.syncAppearance();
     if (screen === 'servers') this.prepareServersScreen();
@@ -9345,10 +9502,21 @@ It is shown once. The far end needs it to register.`);
         this.setVal({ id: 'fun_level_yue', label: 'Funny level (Cantonese)' }, 1);
         this.setVal({ id: 'th_rainbow', label: 'Rainbow accent', kind: 'switch' }, false);
       },
-      executeCeremony: () => { void this.executeCeremonyCommand(); },
+      sureYes: () => this.acceptSure(sureGeneration),
+      closeSure: () => {
+        if (sureGeneration !== this.sureGeneration) return;
+        this.invalidateSure();
+        (values.closeSure as () => void)();
+      },
+      executeCeremony: () => { void this.executeCeremonyCommand(ceremonyGeneration); },
+      cancelCeremony: () => {
+        if (ceremonyGeneration !== this.ceremonyGeneration) return;
+        this.ceremonyGeneration++;
+        (values.cancelCeremony as () => void)();
+      },
       skipCeremony: () => {
         if (Number((this.state as { credits?: number }).credits ?? 0) < 1) { this.fire('No credits', 'No confirmation credit is available. Complete the confirmation instead.'); return; }
-        void this.executeCeremonyCommand().then((ok) => {
+        void this.executeCeremonyCommand(ceremonyGeneration).then((ok) => {
           if (!ok) return;
           this.setState((st: { credits?: number }) => ({ credits: Math.max(0, (st.credits ?? 0) - 1) }));
           this.fire('Confirmation credit spent', 'The completed command used one confirmation credit.');
@@ -9440,8 +9608,12 @@ It is shown once. The far end needs it to register.`);
         void this.onboardDeploy();
       },
       onboardNext: () => {
-        const step = (this.state as { onboardStep: number }).onboardStep;
+        const state = this.state as { screen: string; onboardOpen: boolean; onboardStep: number };
+        if (!state.onboardOpen || state.screen !== screen || state.onboardStep !== onboardStep
+          || connectionGeneration !== this.connectionGeneration) return;
+        const step = state.onboardStep;
         if (step < ONBOARD.length - 1) {
+          this.invalidateConnection();
           this.setState((st: { onboardStep: number }) => ({ onboardStep: st.onboardStep + 1 }));
           return;
         }
@@ -9450,6 +9622,16 @@ It is shown once. The far end needs it to register.`);
         else void this.onboardDeploy();
       },
 
+      onboardBusy: this.connectionBusy,
+      connectionBusy: this.connectionBusy,
+      onboardBack: () => { this.invalidateConnection(); (values.onboardBack as () => void)(); },
+      skipOnboard: () => { this.invalidateConnection(); (values.skipOnboard as () => void)(); },
+      onboardNextLabel: this.connectionBusy ? 'Checking connection…' : (this.state as { onboardStep: number }).onboardStep === ONBOARD.length - 1 && this.onboardAnswers().intent === 'Connect to an existing one' ? 'Connect and verify' : values.onboardNextLabel,
+      ...(this.connectionBusy ? { onboardBody: this.connectionStatus } : {}),
+      ...((this.state as { onboardStep: number }).onboardStep === 2 ? {
+        onboardCtls: connectionFormControls('ob', (this.state as { values: Record<string, unknown> }).values, this.connectionDiscovery).map(this.buildCtl),
+        onboardBody: `Choose the exact target. An existing connection is verified before this setup closes. ${CONNECTION_CAPABILITY_NOTE}`,
+      } : {}),
       connLabel: this.target.label,
       connUptime: this.target.detail,
       openConnection: () => this.showInfo('Connection', BOUNDARY, BOUNDARY_PLAIN, '38%', '70px'),

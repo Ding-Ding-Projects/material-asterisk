@@ -79,23 +79,25 @@ test('the immutable design source retains its original handlers while the post-c
 
 test('App.tsx overrides renderVals, calls super, and routes both execution paths through the typed control-plane handler', () => {
   const app = read(APP);
-  const fn = app.match(/renderVals\(\) \{[\s\S]*?values = super\.renderVals\(\) as Record<string, unknown>;[\s\S]*?finally \{\s*restoreGroups\(\);[\s\S]*?executeCeremony: \(\) => \{ void this\.executeCeremonyCommand\(\); \},[\s\S]*?skipCeremony: \(\) => \{/);
+  const fn = app.match(/renderVals\(\) \{[\s\S]*?values = super\.renderVals\(\) as Record<string, unknown>;[\s\S]*?finally \{\s*restoreGroups\(\);[\s\S]*?executeCeremony: \(\) => \{ void this\.executeCeremonyCommand\(ceremonyGeneration\); \},[\s\S]*?skipCeremony: \(\) => \{/);
   assert.ok(fn, 'expected renderVals to call super.renderVals() and route execute and credit paths through executeCeremonyCommand');
   assert.match(fn[0], /return \{\n\s*\.\.\.values,/, 'expected the returned object to spread the base values before overriding ceremony handlers');
-  assert.match(app, /private async executeCeremonyCommand\(\): Promise<boolean> \{[\s\S]*?await runCeremonyCommand\(\{/,
+  assert.match(app, /private async executeCeremonyCommand\(generation = this\.ceremonyGeneration\): Promise<boolean> \{[\s\S]*?await runCeremonyCommand\(\{/,
     'the renderer-to-control-plane ceremony method is missing');
 });
 
 test('the real executeCeremony passes the actual connection state and server id through, not a stub', () => {
   const app = read(APP);
-  assert.match(app, /connected: this\.target\.connected,/);
-  assert.match(app, /serverId: this\.target\.id,/);
+  assert.match(app, /connected: confirmation\.ceremonyTargetConnected === true && this\.target\.connected,/);
+  assert.match(app, /serverId: confirmation\.ceremonyTargetId,/);
+  assert.match(app, /confirmation\.ceremonyTargetId !== this\.target\.id/);
+  assert.match(app, /generation !== this\.ceremonyGeneration/);
   assert.match(app, /request: \(action, extra\) => this\.request\(action, extra\) as Promise<CeremonyResponse \| undefined>,/);
 });
 
 test('a confirmation credit is spent only after the same real execution route reports success', () => {
   const app = read(APP);
-  assert.match(app, /skipCeremony: \(\) => \{\n\s*void this\.executeCeremonyCommand\(\)\.then\(\(ok\) => \{\n\s*if \(!ok\) return;/);
+  assert.match(app, /skipCeremony: \(\) => \{[\s\S]*?void this\.executeCeremonyCommand\(ceremonyGeneration\)\.then\(\(ok\) => \{\n\s*if \(!ok\) return;/);
   assert.match(app, /this\.setState\(\(st: \{ credits\?: number \}\) => \(\{ credits: Math\.max\(0, \(st\.credits \?\? 0\) - 1\) \}\)\);/);
 });
 

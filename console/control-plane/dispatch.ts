@@ -904,7 +904,9 @@ export function createControlPlaneDispatcher(options: ControlPlaneDispatcherOpti
       }
       if (request.action === 'server.inventory.add') {
         try {
-          const server = serverInventory().add(request.payload as never);
+          const { activateIfEmpty, ...input } = (request.payload ?? {}) as Record<string, unknown>;
+          if (activateIfEmpty !== undefined && typeof activateIfEmpty !== 'boolean') throw new Error('activateIfEmpty must be a boolean.');
+          const server = serverInventory().add(input as never, activateIfEmpty !== false);
           return { ok: true, requestId: request.requestId, data: { server } };
         } catch (error) {
           return { ok: false, requestId: request.requestId, code: (error as { code?: string }).code ?? 'SERVER_ADD_FAILED', message: error instanceof Error ? error.message : 'Could not add the server.' };
@@ -932,9 +934,18 @@ export function createControlPlaneDispatcher(options: ControlPlaneDispatcherOpti
       }
       if (request.action === 'server.inventory.set-active') {
         try {
+          const payload = request.payload as { expectedActiveId?: unknown; clear?: unknown } | undefined;
+          const expected = payload?.expectedActiveId;
+          if (expected !== undefined && expected !== null && (typeof expected !== 'string' || !expected.trim())) {
+            throw new Error('expectedActiveId must be a nonempty server ID or null.');
+          }
+          if (payload?.clear === true) {
+            if (typeof expected !== 'string') throw new Error('Clearing selection requires the expected active server ID.');
+            return { ok: true, requestId: request.requestId, data: { cleared: serverInventory().clearActive(expected) } };
+          }
           const id = request.serverId?.trim();
           if (!id) return { ok: false, requestId: request.requestId, code: 'SERVER_REQUIRED', message: 'Select a server to switch to.' };
-          const server = serverInventory().setActive(id);
+          const server = serverInventory().setActive(id, expected as string | null | undefined);
           return { ok: true, requestId: request.requestId, data: { server } };
         } catch (error) {
           return { ok: false, requestId: request.requestId, code: (error as { code?: string }).code ?? 'SERVER_SET_ACTIVE_FAILED', message: error instanceof Error ? error.message : 'Could not switch the active server.' };

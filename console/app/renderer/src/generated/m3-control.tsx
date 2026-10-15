@@ -273,9 +273,9 @@ class M3Control extends DCLogic {
       isStepper: c.kind === 'stepper',
       isSlider: c.kind === 'slider',
       isOrder: c.kind === 'order',
-      isEditableText: c.kind === 'text' && String(c.id || '').startsWith('pbxadm:'),
+      isEditableText: c.kind === 'text' && (String(c.id || '').startsWith('pbxadm:') || /^(sv|ob)_name$/.test(String(c.id || ''))),
       onEditableTextInput: (e) => { if (c.set) c.set(e.target.value); },
-      isText: c.kind === 'text' && !String(c.id || '').startsWith('pbxadm:'),
+      isText: c.kind === 'text' && !(String(c.id || '').startsWith('pbxadm:') || /^(sv|ob)_name$/.test(String(c.id || ''))),
       isFile: c.kind === 'file',
       stepVal: c.step || 1,
       rangeLabel: (c.min !== undefined ? c.min + '–' + c.max : '')
