@@ -70,7 +70,7 @@ test('the primary navigation genuinely collapses behind a hamburger toggle on na
       `${name}.html has no nav-toggle button`);
   }
   const css = norm(read('site/styles.css'));
-  assert.match(css, /@media\(max-width:1100px\)\{\.site-nav\{position:fixed/,
+  assert.match(css, /@media\(max-width:1600px\)\{\.site-nav\{position:absolute/,
     'the narrow-layout nav-toggle CSS rule for #site-nav is missing');
 
   const src = norm(read('site/app.js'));
