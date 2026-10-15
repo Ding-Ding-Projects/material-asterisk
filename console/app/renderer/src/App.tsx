@@ -1600,8 +1600,10 @@ export class App extends Base {
    * what actually went wrong rather than leaving the screens quietly empty.
    */
   private ensureDaemon = async () => {
-    const answer = await this.request('daemon.status');
-    if (!answer?.ok) return;
+    const targetId = this.target.id;
+    if (!targetId) return;
+    const answer = await this.request('daemon.status', { serverId: targetId });
+    if (this.target.id !== targetId || !answer?.ok) return;
     const state = (answer.data as { status?: { state?: string } }).status?.state;
     /* This is the same reading the Deploy & servers status line shows, so it is
      * seeded from it rather than issuing a second `daemon.status` request. */
@@ -1609,7 +1611,8 @@ export class App extends Base {
     if (state === 'daemonAnswering') return;
 
     this.toast('Starting the phone system…');
-    const started = await this.request('daemon.start');
+    const started = await this.request('daemon.start', { serverId: targetId });
+    if (this.target.id !== targetId) return;
     if (!started?.ok) {
       const detail = started?.message ?? 'Asterisk did not answer after it was started.';
       this.fire('The phone system did not start', detail, true);
@@ -1701,8 +1704,11 @@ export class App extends Base {
       this.fire('No target connected', 'Connect to a server first — there is nothing to start, stop, or restart yet.');
       return;
     }
+    const targetId = this.target.id;
+    const targetLabel = this.target.label;
     this.toast(`${verb === 'start' ? 'Starting' : verb === 'stop' ? 'Stopping' : 'Restarting'} the phone system…`);
-    const response = await this.request(`daemon.${verb}`);
+    const response = await this.request(`daemon.${verb}`, { serverId: targetId });
+    if (this.target.id !== targetId) return;
     if (!response?.ok) {
       const detail = response?.message ?? `The phone system did not ${verb}.`;
       this.fire('Not done', detail, true);
@@ -1714,11 +1720,24 @@ export class App extends Base {
     this.canvasReadings = undefined;
     this.canvasExtensionsConf = undefined;
     await this.refreshDaemonStatus();
-    this.fire(`Phone system ${verb === 'start' ? 'started' : verb === 'stop' ? 'stopped' : 'restarted'}`, `Asterisk on ${this.target.label} answered after the ${verb}.`);
+    if (this.target.id !== targetId) return;
+    this.fire(`Phone system ${verb === 'start' ? 'started' : verb === 'stop' ? 'stopped' : 'restarted'}`, `Asterisk on ${targetLabel} ${verb === 'stop' ? 'was verified stopped' : 'answered'} after the ${verb}.`);
   };
 
+  private daemonStatusGeneration = 0;
+  private daemonStatusAppliedGeneration = 0;
+
   private refreshDaemonStatus = async (): Promise<void> => {
-    const response = await this.request('daemon.status');
+    const targetId = this.target.id;
+    const generation = ++this.daemonStatusGeneration;
+    if (!targetId) {
+      this.daemonStatusLine = 'Unknown: no target selected.';
+      this.forceUpdate();
+      return;
+    }
+    const response = await this.request('daemon.status', { serverId: targetId });
+    if (this.target.id !== targetId || generation < this.daemonStatusAppliedGeneration) return;
+    this.daemonStatusAppliedGeneration = generation;
     if (!response?.ok) {
       this.daemonStatusLine = response?.message ?? 'The control plane did not answer.';
       this.forceUpdate();
