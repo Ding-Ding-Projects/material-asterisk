@@ -76,37 +76,41 @@ test('the registry records ollama-suite-manager as implemented-unverified', () =
   assert.match(row.note, /loopback|local API/iu, 'the note does not name the local-only boundary');
 });
 
-const EXEMPT_SURFACE = "pages-site";
-const EXEMPT_ROOT = resolve(siteRoot, '..', '..');
+// The schema-v2 matrix replaced the old aggregate pages-site exemption.
+// Both capabilities are required; their implementation tests above still own
+// the behavior, and an honest absent status is not an exemption.
+function assertRequiredSiteRows(inventory, exemptions) {
+  assert.equal(inventory.schemaVersion, 2);
+  assert.equal(exemptions.schemaVersion, 2);
+  assert.deepEqual(exemptions.exemptions, [], 'required features must not acquire an exemption');
+  assert.equal(inventory.features.filter((entry) => entry.id === 'ollama-suite-manager').length, 1,
+    'the required feature must remain in the canonical feature set');
+  const surfaces = inventory.surfaces.filter((entry) => entry.registry === 'site');
+  assert.ok(surfaces.length > 0, 'the matrix must retain its per-route site surfaces');
+  for (const surface of surfaces) {
+    const rows = surface.rows.filter((entry) => entry.featureId === 'ollama-suite-manager');
+    assert.equal(rows.length, 1, `${surface.id} must carry exactly one required feature row`);
+    assert.ok(['absent', 'partial', 'implemented-unverified', 'verified'].includes(rows[0].status),
+      `${surface.id} must record an honest implementation status, never an exemption`);
+  }
+}
 
-/* ------------------------------------------------------------------ *
- * Read this before deleting anything above.
- *
- * The absence below is a DECISION, not a gap. If you are here because a
- * registry row said `absent` and you took that as work waiting to be done,
- * stop: ollama-suite-manager was excluded by the owner, for both surfaces, and the
- * reason is in `console/inventories/exemptions.json`. Only the owner can
- * reverse that.
- *
- * This block is here rather than only in the inventory because this is the
- * file somebody has to edit to make a newly built feature pass, so it is the
- * last place the decision can still be met before an afternoon is spent. On
- * 2026-08-27 one was: the site converter was built in full, with 57 contract
- * tests and 48 planted breaks behind it, before anything said the exclusion
- * existed.
- * ------------------------------------------------------------------ */
-test('ollama-suite-manager is excluded by owner decision, so its absence is not a gap to fill', () => {
-  const inventoryRoot = resolve(EXEMPT_ROOT, 'console/inventories');
+test('ollama-suite-manager remains required on every canonical site surface', () => {
+  const inventoryRoot = resolve(siteRoot, '..', 'inventories');
   const inventory = JSON.parse(readFileSync(resolve(inventoryRoot, 'surface-completeness.json'), 'utf8'));
   const exemptions = JSON.parse(readFileSync(resolve(inventoryRoot, 'exemptions.json'), 'utf8'));
-  const surface = inventory.surfaces.find((entry) => entry.id === EXEMPT_SURFACE);
-  assert.ok(surface, `${EXEMPT_SURFACE} is no longer a surface in the completeness inventory`);
-  const row = surface.features.find((entry) => entry.id === 'ollama-suite-manager');
-  assert.equal(row?.status, 'exempt',
-    'ollama-suite-manager is no longer marked exempt for this surface -- if the owner reversed the exclusion, this whole file needs rewriting rather than this one line');
-  const decision = exemptions.exemptions.find((entry) => entry.feature === 'ollama-suite-manager');
-  assert.ok(decision?.surfaces.includes(EXEMPT_SURFACE),
-    'the exemption record no longer covers this surface');
-  assert.equal(decision.decidedBy, 'owner', 'the exclusion is no longer recorded as the owner\'s decision');
-  assert.ok(decision.reason.length > 40, 'the exclusion no longer carries a reason worth disagreeing with');
+  assertRequiredSiteRows(inventory, exemptions);
+
+  const missingRow = structuredClone(inventory);
+  const firstSite = missingRow.surfaces.find((entry) => entry.registry === 'site');
+  firstSite.rows = firstSite.rows.filter((entry) => entry.featureId !== 'ollama-suite-manager');
+  assert.throws(() => assertRequiredSiteRows(missingRow, exemptions), { code: 'ERR_ASSERTION' });
+
+  const exemptRow = structuredClone(inventory);
+  exemptRow.surfaces.find((entry) => entry.registry === 'site').rows
+    .find((entry) => entry.featureId === 'ollama-suite-manager').status = 'exempt';
+  assert.throws(() => assertRequiredSiteRows(exemptRow, exemptions), { code: 'ERR_ASSERTION' });
+  assert.throws(() => assertRequiredSiteRows(inventory, {
+    ...exemptions, exemptions: [{ feature: 'ollama-suite-manager', surfaces: ['site-index'] }],
+  }), { code: 'ERR_ASSERTION' });
 });

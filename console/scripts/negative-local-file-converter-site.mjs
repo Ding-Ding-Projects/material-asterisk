@@ -203,7 +203,7 @@ const cases = [
   // The state the page shipped in for its whole life so far: never published at all,
   // so however well it worked it could not be opened on the site.
   ['the page stops being published by the site build',
-    swap(file('site/build.mjs'), "'documentation.html', 'converter.html', 'downloads.html'", "'documentation.html', 'downloads.html'")],
+    swap(file('site/build.mjs'), "'converter.html', ", '')],
 
   ['the home page stops linking the converter',
     swap(file('site/index.html'), '<a href="documentation.html">Documentation</a><a href="converter.html">Converter</a>',
@@ -222,6 +222,13 @@ const cases = [
 ];
 
 let failures = 0;
+try {
+  execFileSync(process.execPath, ['--test', TEST], { cwd: consoleRoot, stdio: 'pipe' });
+  console.log('green before break: the unmodified contract passes.');
+} catch (error) {
+  console.error(`FAILED: the unmodified contract must pass before planting any break.\n${error.stdout}`);
+  process.exit(1);
+}
 console.log(`Planting ${cases.length} break(s) against ${TEST}, one at a time.\n`);
 
 for (const [label, plant] of cases) {
