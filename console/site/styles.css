@@ -317,7 +317,8 @@ dialog::backdrop{background:rgba(0,0,0,.55);backdrop-filter:blur(3px)}
 .toast .dialog-emoji{margin-top:0;color:inherit}
 .ticket{padding:11px;margin-top:8px;border-radius:var(--radius-sm);background:var(--surface-2)}
 .highlight{animation:highlight 1.2s ease}
-.reveal{opacity:0;transform:translateY(16px);transition:opacity .4s ease,transform .4s cubic-bezier(.2,0,0,1)}
+.reveal{opacity:1;transform:none;transition:opacity .4s ease,transform .4s cubic-bezier(.2,0,0,1)}
+.reveal.reveal-pending{opacity:0;transform:translateY(16px)}
 .reveal.visible{opacity:1;transform:none}
 
 body.focus-mode .section:not(:focus-within):not(:target){opacity:.55}
@@ -330,7 +331,7 @@ body.momentum-mode #installer-status::after{content:" Local momentum prompts are
 
 @media(max-width:1100px){.header-links{display:none}.hero{grid-template-columns:1fr;min-height:auto}.bento-grid{grid-template-columns:1fr 1fr}.bento-large,.bento-wide{grid-column:span 2}.ai-grid{grid-template-columns:1fr 1fr}.security-grid{grid-template-columns:1fr}.section-heading{grid-template-columns:1fr}.section-heading>p{margin:0}.trust-strip{overflow:auto;justify-content:flex-start}.trust-strip span{white-space:nowrap}}
 @media(max-width:720px){.topbar{height:64px;padding:8px 14px}.brand small,.command-button{display:none}.top-actions{gap:2px}main{padding:16px}.hero{padding-top:36px}.hero h1{font-size:clamp(2.2rem,10vw,3rem)}.release-callout,.docs-cta,footer{align-items:flex-start;flex-direction:column}.preview-grid{grid-template-columns:1fr}.preview-stat{display:grid;grid-template-columns:1fr auto;align-items:center}.preview-stat .trend{grid-column:1/-1}.bento-grid{grid-template-columns:1fr}.bento-large,.bento-wide{grid-column:auto}.bento-wide{display:block}.orbit{margin:25px auto 0}.mini-flow{position:static;margin-top:44px}.section{margin-top:72px}.section-heading h2{font-size:clamp(1.9rem,9vw,2.6rem)}.settings-section,.feature-band{padding:18px;border-radius:var(--radius)}.settings-top{align-items:stretch;flex-direction:column}.setting-row{grid-template-columns:1fr}.logo-studio{grid-template-columns:1fr}.logo-preview{width:100%;max-width:220px}.ai-grid{grid-template-columns:1fr}.four-searches{grid-template-columns:1fr}.destination-toolbar{align-items:flex-start;flex-direction:column}.destination-toolbar .search-composite{width:100%}}
-@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.reveal{opacity:1;transform:none;transition:none}.orbit i{animation:none}.rail,.destination-card{transition:none}.ambient{display:none}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.reveal,.reveal.reveal-pending{opacity:1;transform:none;transition:none}.orbit i{animation:none}.rail,.destination-card{transition:none}.ambient{display:none}}
 
 .documentation-page{max-width:900px;margin:auto;padding:clamp(22px,5vw,64px)}
 .documentation-page nav{margin-bottom:36px;color:var(--muted)}

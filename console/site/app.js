@@ -3218,7 +3218,21 @@
     document.addEventListener('keydown',event=>{if(event.key==='Escape')close();if(event.ctrlKey&&event.shiftKey&&event.key.toLowerCase()==='f'){event.preventDefault();openPalette()}});
     menu.addEventListener('click',close);
   }
-  function initReveals(){const items=all('.reveal');if(reduceMotion()||!('IntersectionObserver'in window)){items.forEach(item=>item.classList.add('visible'));return}const observer=new IntersectionObserver(entries=>entries.forEach(entry=>{if(entry.isIntersecting){entry.target.classList.add('visible');observer.unobserve(entry.target)}}),{rootMargin:'0px 0px -8% 0px',threshold:.08});items.forEach(item=>observer.observe(item))}
+  function initReveals(){
+    const items=all('.reveal:not(.visible):not(.reveal-pending)');
+    if(!items.length)return;
+    let observer,timer;
+    const show=item=>{item.classList.add('visible');item.classList.remove('reveal-pending')};
+    const finish=()=>{items.forEach(show);observer?.disconnect();clearTimeout(timer)};
+    if(reduceMotion()||!('IntersectionObserver'in window)){finish();return}
+    try{
+      observer=new IntersectionObserver(entries=>{try{entries.forEach(entry=>{if(entry.isIntersecting){show(entry.target);observer.unobserve(entry.target)}})}catch{finish()}},{rootMargin:'0px 0px -8% 0px',threshold:.08});
+      // Content starts readable. Hide it only after observation works, and never
+      // depend on another startup step or an observer callback to show it again.
+      timer=setTimeout(finish,2000);
+      items.forEach(item=>{observer.observe(item);if(!item.classList.contains('visible'))item.classList.add('reveal-pending')});
+    }catch{finish()}
+  }
 
   function renderDestinations(query=''){const grid=$('destination-grid');if(!grid)return;const matches=DESTINATIONS.filter(item=>matchText(`${item.name} ${item.group} ${item.description}`,query,'feature-search')),pageSize=8,pageCount=Math.max(1,Math.ceil(matches.length/pageSize));destinationPage=Math.min(destinationPage,pageCount-1);const shown=matches.slice(destinationPage*pageSize,(destinationPage+1)*pageSize);grid.innerHTML=shown.map(item=>`<article class="destination-card reveal" id="destination-${item.id}" tabindex="-1"><span class="destination-icon" aria-hidden="true">${item.icon}</span><span class="card-kicker">${escapeHtml(item.group)}</span><h2>${escapeHtml(item.name)}</h2><p>${escapeHtml(item.description)}</p><a class="text-button" href="${BASE}docs/${item.article}.html">Read article <span aria-hidden="true">→</span></a></article>`).join('')||`<p class="empty-state">${escapeHtml(copyText('emptyDestinations'))}</p>`;if($('destination-count'))$('destination-count').textContent=`${matches.length} destination${matches.length===1?'':'s'} · page ${destinationPage+1} of ${pageCount}`;if($('destination-pagination'))$('destination-pagination').innerHTML=Array.from({length:pageCount},(_,index)=>`<button type="button" data-page="${index}" ${index===destinationPage?'aria-current="page"':''}>${index+1}</button>`).join('');initReveals();updateDestinationMap(matches);applyVocabulary();updateFilterStatus('documentation-filter-status','feature-search');lastDocumentationMatches=matches;lastDocumentationQuery=query;updateDocumentationExport()}
   let lastDocumentationMatches=[],lastDocumentationQuery='';
@@ -5850,7 +5864,7 @@
   function formatBuildTime(value){
     const date=new Date(value);
     if(!Number.isFinite(date.getTime()))return 'updated-at unavailable';
-    return new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'medium',timeZoneName:'short'}).format(date);
+    return new Intl.DateTimeFormat(undefined,{year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',second:'2-digit',timeZoneName:'short'}).format(date);
   }
 
   const LOGO_MARKS={
