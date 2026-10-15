@@ -60,23 +60,23 @@ function Template(v: any) {
               "search"
             )
           ),
-          h("div", { style: sty(`display:flex;`) },
-            h("div", { style: sty(`width:34px; height:32px; display:flex; align-items:center; justify-content:center; color:#9AA39B; border-radius:8px;`), onClick: fn(v.__window?.minimize), "data-window-button": ``, title: `Minimize`, className: "k-h1" },
+          (v.hasWindowControls ? h("div", { style: sty(`display:flex;`) },
+            h("button", { type: `button`, "aria-label": `Minimize`, style: sty(`background:transparent; border:0; padding:0; font:inherit; cursor:pointer; width:34px; height:32px; display:flex; align-items:center; justify-content:center; color:#9AA39B; border-radius:8px;`), onClick: fn(v.__window?.minimize), "data-window-button": ``, title: `Minimize`, className: "k-h1" },
               h("span", { style: sty(`font-size:17px;`), className: "msym" },
                 "remove"
               )
             ),
-            h("div", { style: sty(`width:34px; height:32px; display:flex; align-items:center; justify-content:center; color:#9AA39B; border-radius:8px;`), onClick: fn(v.__window?.toggleMaximize), "data-window-button": ``, title: `Maximize`, className: "k-h1" },
+            h("button", { type: `button`, "aria-label": `Maximize`, style: sty(`background:transparent; border:0; padding:0; font:inherit; cursor:pointer; width:34px; height:32px; display:flex; align-items:center; justify-content:center; color:#9AA39B; border-radius:8px;`), onClick: fn(v.__window?.toggleMaximize), "data-window-button": ``, title: `Maximize`, className: "k-h1" },
               h("span", { style: sty(`font-size:15px;`), className: "msym" },
                 "crop_square"
               )
             ),
-            h("div", { style: sty(`width:34px; height:32px; display:flex; align-items:center; justify-content:center; color:#9AA39B; border-radius:8px;`), onClick: fn(v.__window?.close), "data-window-button": ``, title: `Close`, className: "k-h5" },
+            h("button", { type: `button`, "aria-label": `Close`, style: sty(`background:transparent; border:0; padding:0; font:inherit; cursor:pointer; width:34px; height:32px; display:flex; align-items:center; justify-content:center; color:#9AA39B; border-radius:8px;`), onClick: fn(v.__window?.close), "data-window-button": ``, title: `Close`, className: "k-h5" },
               h("span", { style: sty(`font-size:17px;`), className: "msym" },
                 "close"
               )
             )
-          )
+          ) : null)
         )
       ),
       h("div", { style: sty(`height:38px; flex:0 0 38px; display:flex; align-items:flex-end; gap:2px; background:#0B0F0C; padding:0 6px; overflow-x:auto;`) },

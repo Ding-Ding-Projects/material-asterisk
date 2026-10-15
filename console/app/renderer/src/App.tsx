@@ -4727,7 +4727,7 @@ What you can do: ${offered}.` : ''}`);
    * hands the browser a real file download built from those exact rows --
    * never the whole table when only a few rows are selected.
    */
-  bulk = async (verb: string, sel: string[]): Promise<void> => {
+  bulk = async (verb: string, sel: string[]): Promise<boolean> => {
     const screen = (this.state as { screen: string }).screen;
     const screens = SCREENS as Record<string, { table?: { rows: string[][]; cols: string[] } }>;
     const table = screens[screen]?.table;
@@ -4747,7 +4747,7 @@ What you can do: ${offered}.` : ''}`);
       }
       : unsupportedBulkAction(verb.toLowerCase(), verb, `Bulk ${verb.toLowerCase()} is unavailable because this table has no verified write executor.` , verb === 'Deleted');
     const plan = planBulkAction(action, collection, selection);
-    if (plan.status === 'disabled') { this.fire(verb, plan.reason); return; }
+    if (plan.status === 'disabled') { this.fire(verb, plan.reason); return false; }
     if (plan.action.id === 'export') {
       /* A single export represents the exact approved selection, not one silent
        * download per row and never the table's entire reading.  The preview is made
@@ -4762,7 +4762,7 @@ What you can do: ${offered}.` : ''}`);
       const prepared = prepareExport({ rows: selectedRecords, format, table: screen });
       if (prepared.status !== 'prepared') {
         this.fire(verb, `The selected rows were not exported: ${prepared.reason}`);
-        return;
+        return false;
       }
       const artifact = prepared.artifact;
       const blob = new Blob([artifact.content], { type: artifact.mediaType });
@@ -4772,11 +4772,13 @@ What you can do: ${offered}.` : ''}`);
       this.set('selected', []);
       const disclosures = artifact.disclosures.map((disclosure) => disclosure.message);
       this.fire(verb, `${plan.affectedCount} selected row(s) exported as ${artifact.format}.${disclosures.length ? ` ${disclosures.join(' ')}` : ''}`);
-      return;
+      return true;
     }
     const result = await runBulkAction(plan, { concurrency: 1 });
     this.set('selected', []);
-    this.fire(verb, `${result.counts.exported} completed; ${result.counts.skipped} skipped; ${result.counts.failed} failed.`);
+    const completed = result.counts[plan.action.successStatus];
+    this.fire(verb, `${completed} completed; ${result.counts.skipped} skipped; ${result.counts.failed} failed.`);
+    return completed > 0 && completed === plan.selectedCount;
   };
 
   /**
@@ -9210,15 +9212,19 @@ It is shown once. The far end needs it to register.`);
    * path in one method also prevents the credit shortcut from becoming a second,
    * decorative execution route.
    */
+  private ceremonyPending = false;
+
   private async executeCeremonyCommand(): Promise<boolean> {
+    if (this.ceremonyPending) return false;
+    this.ceremonyPending = true;
+    try {
     const title = String((this.state as { ceremonyTitle?: string }).ceremonyTitle ?? '');
     const command = String((this.state as { ceremonyCmd?: string }).ceremonyCmd ?? '');
     this.set('ceremonyOpen', false);
 
     const bulkDeleteIds = parseBulkDeleteCeremony(title, command);
     if (bulkDeleteIds) {
-      this.bulk('Deleted', bulkDeleteIds);
-      return true;
+      return await this.bulk('Deleted', bulkDeleteIds);
     }
 
     const ok = await runCeremonyCommand({
@@ -9235,6 +9241,10 @@ It is shown once. The far end needs it to register.`);
     if (/^manager kick session /u.test(command)) delete this.readings.ami;
     this.forceUpdate();
     return true;
+    } catch (error) {
+      this.fire('Not run', error instanceof Error ? error.message : 'The command did not complete.');
+      return false;
+    } finally { this.ceremonyPending = false; }
   }
 
   renderVals() {
@@ -9275,6 +9285,7 @@ It is shown once. The far end needs it to register.`);
       // The "Edit appearance..." panel's real colour translator and real actions
       // (appearance.ts + colour.ts) -- see the Appearance section above renderVals.
       ...this.appearanceVals(),
+      hasWindowControls: !!bridge && ['win32', 'linux', 'darwin'].includes(bridge.platform),
       __window: {
         minimize: () => bridge?.window.minimize(),
         toggleMaximize: () => bridge?.window.toggleMaximize(),
@@ -9336,6 +9347,7 @@ It is shown once. The far end needs it to register.`);
       },
       executeCeremony: () => { void this.executeCeremonyCommand(); },
       skipCeremony: () => {
+        if (Number((this.state as { credits?: number }).credits ?? 0) < 1) { this.fire('No credits', 'No confirmation credit is available. Complete the confirmation instead.'); return; }
         void this.executeCeremonyCommand().then((ok) => {
           if (!ok) return;
           this.setState((st: { credits?: number }) => ({ credits: Math.max(0, (st.credits ?? 0) - 1) }));

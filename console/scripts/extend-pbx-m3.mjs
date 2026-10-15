@@ -220,5 +220,14 @@ const methods = `      tabSearchPrefix:(scope) => scope === 'strip' ? 'stripTabS
 ${methodsMarker}`;
 if (!shell.includes(methodsMarker)) throw new Error('PBX M3 extension could not find tab search method marker.');
 shell = shell.replace(methodsMarker, methods);
+// A browser has no native window IPC. Only the desktop exposes these controls.
+const windowChromePattern = /          h\("div", \{ style: sty\(`display:flex;`\) \},\n([\s\S]*?"data-window-button"[\s\S]*?)\n          \)/u;
+const windowChrome = shell.match(windowChromePattern);
+if (!windowChrome || (windowChrome[0].match(/"data-window-button"/gu) ?? []).length !== 3) {
+  throw new Error('Native window-control extension expected exactly three title-bar controls.');
+}
+let nativeChrome = windowChrome[0].replace(/h\("div", \{ style: sty\(`(width:34px;[^`]+)`\), onClick: fn\(v\.__window\?\.(minimize|toggleMaximize|close)\), "data-window-button": ``, title: `(Minimize|Maximize|Close)`/gu,
+  (_whole, style, action, label) => 'h("button", { type: `button`, "aria-label": `' + label + '`, style: sty(`background:transparent; border:0; padding:0; font:inherit; cursor:pointer; ' + style + '`), onClick: fn(v.__window?.' + action + '), "data-window-button": ``, title: `' + label + '`');
+shell = shell.replace(windowChrome[0], '          (v.hasWindowControls ? ' + nativeChrome.trimStart() + ' : null)');
 await writeFile(consolePath, shell, 'utf8');
 console.log(`extended compiled console interactions -> ${consolePath}`);
