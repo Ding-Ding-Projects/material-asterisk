@@ -230,14 +230,36 @@ test('the installer-iso workflow verifies boot properties, not merely that the f
   assert.match(content, /grep -q UEFI/);
 });
 
-test('the installer-iso workflow splits the ISO into volumes under the 2 GiB release-asset limit', () => {
+function assertIsoVolumeCeiling(content) {
+  // The project intentionally uses a stricter 1200 MiB ceiling than GitHub's
+  // 2 GiB release-asset limit. Pin both the split and its byte-size validation.
+  assert.match(content, /^\s*split -b 1200MiB -d /m, 'volumes must use the project ceiling of 1200 MiB');
+  assert.match(content, /^\s*max_part_bytes=1258291200\s*$/m, 'the byte ceiling must equal 1200 MiB');
+  assert.match(content, /^\s*if \[ "\$part_bytes" -gt "\$max_part_bytes" \]; then\s*$/m,
+    'every produced volume must be checked against the ceiling');
+}
+
+test('the installer-iso workflow splits and checks volumes at the project 1200 MiB ceiling', () => {
   const content = readWorkflow();
-  assert.match(content, /split -b 1900MiB/, 'volumes must be safely under the 2 GiB (2147483648 byte) per-file cap');
+  assertIsoVolumeCeiling(content);
+  assert.equal(1200 * 1024 ** 2, 1258291200);
+  assert.ok(1258291200 < 2 * 1024 ** 3, 'the project ceiling must remain below the 2 GiB release-asset limit');
   assert.match(content, /REASSEMBLE\.md/, 'a reassembly manifest must be produced');
   assert.match(content, /sha256sum ding-pbx-installer\.iso\.part\*/, 'every volume must have its own recorded SHA-256');
-  // Prove this is a real check: a mutated copy using a size at or over the cap must fail it.
-  const broken = content.replace('split -b 1900MiB', 'split -b 2000MiB');
-  assert.doesNotMatch(broken, /split -b 1900MiB/);
+  // Re-run the real assertion against each mutation, rather than merely proving
+  // that a replacement removed its own search string. 2048 MiB reaches 2 GiB.
+  for (const size of [1201, 1900, 2048]) {
+    const broken = content.replace('split -b 1200MiB', `split -b ${size}MiB`);
+    assert.notEqual(broken, content, 'the split-size mutation must land');
+    assert.throws(() => assertIsoVolumeCeiling(broken), { code: 'ERR_ASSERTION' });
+  }
+  for (const broken of [
+    content.replace('max_part_bytes=1258291200', 'max_part_bytes=1258291201'),
+    content.replace('if [ "$part_bytes" -gt "$max_part_bytes" ]; then', '# if [ "$part_bytes" -gt "$max_part_bytes" ]; then'),
+  ]) {
+    assert.notEqual(broken, content, 'the validation mutation must land');
+    assert.throws(() => assertIsoVolumeCeiling(broken), { code: 'ERR_ASSERTION' });
+  }
 });
 
 test('the installer-iso workflow records the reassembled ISO SHA-256 so a user can prove they rebuilt the right file', () => {
