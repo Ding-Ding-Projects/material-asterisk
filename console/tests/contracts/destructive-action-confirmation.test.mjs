@@ -79,7 +79,7 @@ test('the immutable design source retains its original handlers while the post-c
 
 test('App.tsx overrides renderVals, calls super, and routes both execution paths through the typed control-plane handler', () => {
   const app = read(APP);
-  const fn = app.match(/renderVals\(\) \{[\s\S]*?values = super\.renderVals\(\) as Record<string, unknown>;[\s\S]*?finally \{\s*restoreGroups\(\);[\s\S]*?executeCeremony: \(\) => \{ void this\.executeCeremonyCommand\(ceremonyGeneration\); \},[\s\S]*?skipCeremony: \(\) => \{/);
+  const fn = app.match(/renderVals\(\) \{[\s\S]*?values = super\.renderVals\(\) as Record<string, unknown>;[\s\S]*?finally \{\s*restoreGroups\(\);[\s\S]*?executeCeremony: \(\) => \{[\s\S]*?void this\.executeCeremonyCommand\(ceremonyGeneration\);[\s\S]*?skipCeremony: \(\) => \{/);
   assert.ok(fn, 'expected renderVals to call super.renderVals() and route execute and credit paths through executeCeremonyCommand');
   assert.match(fn[0], /return \{\n\s*\.\.\.values,/, 'expected the returned object to spread the base values before overriding ceremony handlers');
   assert.match(app, /private async executeCeremonyCommand\(generation = this\.ceremonyGeneration\): Promise<boolean> \{[\s\S]*?await runCeremonyCommand\(\{/,
@@ -97,8 +97,11 @@ test('the real executeCeremony passes the actual connection state and server id 
 
 test('a confirmation credit is spent only after the same real execution route reports success', () => {
   const app = read(APP);
-  assert.match(app, /skipCeremony: \(\) => \{[\s\S]*?void this\.executeCeremonyCommand\(ceremonyGeneration\)\.then\(\(ok\) => \{\n\s*if \(!ok\) return;/);
-  assert.match(app, /this\.setState\(\(st: \{ credits\?: number \}\) => \(\{ credits: Math\.max\(0, \(st\.credits \?\? 0\) - 1\) \}\)\);/);
+  assert.match(app, /skipCeremony: \(\) => \{[\s\S]*?if \(!currentCredit\.allowed\)[\s\S]*?this\.reservedConfirmationCredits \+= currentCredit\.cost;[\s\S]*?void this\.executeCeremonyCommand\(ceremonyGeneration\)\.then\(\(ok\) => \{\n\s*if \(!ok\) \{/);
+  assert.match(app, /this\.setState\(\(st: \{ credits\?: number \}\) => \(\{ credits: Math\.max\(0, \(st\.credits \?\? 0\) - currentCredit\.cost\) \}\), \(\) => \{/);
+  assert.match(app, /canSkip: credit\.allowed,/);
+  assert.match(app, /creditSkipLabel: credit\.allowed \? confirmationCreditLabel\(credit\.cost\) : '',/);
+  assert.match(read(DESIGN), /S\(v\.creditSkipLabel\)/);
 });
 
 test('object-spread ordering genuinely means a later key wins over an earlier spread, proven independently of the app', () => {

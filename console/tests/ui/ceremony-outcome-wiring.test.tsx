@@ -10,6 +10,7 @@ function harness() {
     instance.state = { ...instance.state, ...(typeof partial === 'function' ? partial(instance.state) : partial) }; callback?.();
   } };
   app.state = { ...app.state, screen: 'servers', credits: 3, ceremonyOpen: true, ceremonyTitle: 'Delete 1 objects', ceremonyCmd: 'delete selected-id', selected: ['selected-id'] };
+  app.state.values = { ...app.state.values, cr_danger: false };
   app.servers.servers = [{ id: 'selected-id', name: 'selected-row', connectionKind: 'wsl', wslDistribution: 'Selected', state: 'idle' }];
   app.target = { id: 'chosen-target', label: 'Chosen target', connected: true };
   app.ceremony(app.state.ceremonyTitle, app.state.ceremonyCmd);
@@ -73,5 +74,5 @@ test('an empty credit balance cannot execute a shortcut', async () => {
   app.renderVals().skipCeremony();
   await setImmediate();
   assert.equal(app.state.ceremonyOpen, true);
-  assert.match(messages.join('\n'), /No credits/u);
+  assert.match(messages.join('\n'), /balance is insufficient/u);
 });

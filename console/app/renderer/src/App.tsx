@@ -25,6 +25,7 @@ import {
 import { buildCodecGraph, layoutCodecs, unreachable as unreachableCodecs } from './codec-graph';
 import { buildEndpointGraph, brokenLinks as brokenEndpointLinks, layoutTopology, summarise as summariseEndpointGraph } from './endpoint-graph';
 import { runCeremonyCommand, type CeremonyResponse } from './ceremony';
+import { confirmationCreditEligibility, confirmationCreditLabel } from './confirmation-credit';
 import { configSummary, renderForDisplay, resourceForFile, sectionNames, type ConfigReading, type ConfigSection, type ConfigValue } from './configuration';
 import {
   readControlValues, isUninventoried, unmappedControls,
@@ -9356,6 +9357,18 @@ It is shown once. The far end needs it to register.`);
    */
   private ceremonyPending = false;
   private ceremonyGeneration = 0;
+  /** Reserved until failure or the successful debit's React state update commits. */
+  private reservedConfirmationCredits = 0;
+
+  private creditEligibility() {
+    const state = this.state as { ceremonyOpen?: boolean; ceremonyCmd?: string; cStep?: number; credits?: number; values?: Record<string, unknown> };
+    return confirmationCreditEligibility({
+      command: state.ceremonyCmd ?? '',
+      open: state.ceremonyOpen === true, step: state.cStep ?? 0,
+      credits: typeof state.credits === 'number' ? state.credits - this.reservedConfirmationCredits : state.credits,
+      settings: state.values ?? {},
+    });
+  }
 
   private async executeCeremonyCommand(generation = this.ceremonyGeneration): Promise<boolean> {
     if (generation !== this.ceremonyGeneration) return false;
@@ -9436,6 +9449,7 @@ It is shown once. The far end needs it to register.`);
     const sub = screen === 'about'
       ? `${values.screenSub as string} ${aboutIdentityLine(this.durableStorage.storage)}`
       : (values.screenSub as string);
+    const credit = this.creditEligibility();
 
     return {
       ...values,
@@ -9508,18 +9522,36 @@ It is shown once. The far end needs it to register.`);
         this.invalidateSure();
         (values.closeSure as () => void)();
       },
-      executeCeremony: () => { void this.executeCeremonyCommand(ceremonyGeneration); },
+      executeCeremony: () => {
+        if ((this.state as { cStep?: number }).cStep !== 4) {
+          this.fire('Confirmation incomplete', 'Complete all four confirmation gates before running this action.');
+          return;
+        }
+        void this.executeCeremonyCommand(ceremonyGeneration);
+      },
       cancelCeremony: () => {
         if (ceremonyGeneration !== this.ceremonyGeneration) return;
         this.ceremonyGeneration++;
         (values.cancelCeremony as () => void)();
       },
+      canSkip: credit.allowed,
+      creditSkipLabel: credit.allowed ? confirmationCreditLabel(credit.cost) : '',
       skipCeremony: () => {
-        if (Number((this.state as { credits?: number }).credits ?? 0) < 1) { this.fire('No credits', 'No confirmation credit is available. Complete the confirmation instead.'); return; }
+        // A retained callback must use today's settings and balance, not render-time eligibility.
+        const currentCredit = this.creditEligibility();
+        if (!currentCredit.allowed) { this.fire('Confirmation credit unavailable', currentCredit.reason); return; }
+        this.reservedConfirmationCredits += currentCredit.cost;
         void this.executeCeremonyCommand(ceremonyGeneration).then((ok) => {
-          if (!ok) return;
-          this.setState((st: { credits?: number }) => ({ credits: Math.max(0, (st.credits ?? 0) - 1) }));
-          this.fire('Confirmation credit spent', 'The completed command used one confirmation credit.');
+          if (!ok) {
+            this.reservedConfirmationCredits -= currentCredit.cost;
+            this.forceUpdate();
+            return;
+          }
+          this.setState((st: { credits?: number }) => ({ credits: Math.max(0, (st.credits ?? 0) - currentCredit.cost) }), () => {
+            this.reservedConfirmationCredits -= currentCredit.cost;
+            this.forceUpdate();
+            this.fire('Confirmation credit spent', `The completed command used ${currentCredit.cost} confirmation credit${currentCredit.cost === 1 ? '' : 's'}.`);
+          });
         });
       },
       /**

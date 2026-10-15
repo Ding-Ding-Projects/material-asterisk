@@ -1934,7 +1934,7 @@ function Template(v: any) {
                   "confirmation_number"
                 ),
                 h("span", { style: sty(`flex:1;`) },
-                  "Spend 1 confirmation credit and skip all four gates"
+                  S(v.creditSkipLabel)
                 ),
                 h("span", { style: sty(`font-family:'Roboto Mono',monospace; font-size:12px;`) },
                   `${S(v.credits)} left`
@@ -3890,7 +3890,7 @@ const SCREENS = {
       ctl('hi_reload','Reload Asterisk after a restore','switch',true)
     ]}] },
   arcade:{ rail:'app', icon:'stadia_controller', label:'Arcade', badge:'', title:'Confirmation credits', file:'arcade', kind:'arcade',
-    sub:'The four-gate ceremony is thorough and, twelve times a day, exhausting. Win credits here and spend one to skip a ceremony. Credits are earned, never bought with money, and destructive actions above the danger line always cost two.',
+    sub:'The four-gate ceremony is thorough and, twelve times a day, exhausting. Win credits here and spend the configured cost to skip a ceremony. Credits are earned, never bought with money. High-danger actions require the full ceremony while protection is on; otherwise they cost at least two credits.',
     groups:[{ title:'Spending rules', desc:'How credits are allowed to replace a ceremony.', ctls:[
       ctl('cr_enable','Allow credits to skip ceremonies','switch',true),
       ctl('cr_cost','Cost per skip','stepper',1,{ min:1, max:5 }),

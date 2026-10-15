@@ -72,6 +72,8 @@ const colourKeepReplacement = "          const keep = s.tabs.filter(k => s.pinne
 const textKeepMarker = "        const keep = s.tabs.filter(k => {\n          const label = (s.tabNames[k] || (SCREENS[k] ? SCREENS[k].title : k)).toLowerCase();";
 const textKeepReplacement = "        const keep = s.tabs.filter(k => {\n          if (s.pinned.indexOf(k) >= 0) return true;\n          const label = (s.tabNames[k] || (SCREENS[k] ? SCREENS[k].title : k)).toLowerCase();";
 const shellPatches = [
+  ['"Spend 1 confirmation credit and skip all four gates"', 'S(v.creditSkipLabel)', 'current confirmation-credit cost label'],
+  ['Win credits here and spend one to skip a ceremony. Credits are earned, never bought with money, and destructive actions above the danger line always cost two.', 'Win credits here and spend the configured cost to skip a ceremony. Credits are earned, never bought with money. High-danger actions require the full ceremony while protection is on; otherwise they cost at least two credits.', 'confirmation-credit spending rules'],
   [dockMarker, dockReplacement, 'four edge dock choices'],
   [directionMarker, directionReplacement, 'bottom dock direction'],
   [keysMarker, keysReplacement, 'axis-aware tab keyboard navigation'],
