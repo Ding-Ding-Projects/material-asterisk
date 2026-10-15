@@ -111,7 +111,8 @@ function replaceAllOccurrences(text, needle, replacement, expectedCount, label) 
   if (count !== expectedCount) throw new Error(`${label}: expected exactly ${expectedCount} occurrence(s) of ${JSON.stringify(needle)}, found ${count}`);
   return text.split(needle).join(replacement);
 }
-const SETUP_ASSET_NAME = 'Ding-PBX-Console-Setup.exe';
+// Keep the current and legacy names aligned with resolve-site-download-manifest.mjs.
+const SETUP_ASSET_NAMES = ['Material-Asterisk-Setup.exe', 'Ding-PBX-Console-Setup.exe'];
 const RELEASE_URL_PREFIX = `https://github.com/${PUBLIC_REPOSITORY}/releases/tag/`;
 const ASSET_URL_PREFIX = `https://github.com/${PUBLIC_REPOSITORY}/releases/download/`;
 const SEMVER = /^\d+\.\d+\.\d+$/;
@@ -129,7 +130,7 @@ function validateDownloadManifest(candidate) {
   if (typeof candidate.releaseUrl !== 'string' || !candidate.releaseUrl.startsWith(RELEASE_URL_PREFIX)) return 'releaseUrl is not an immutable release tag URL';
   if (typeof candidate.releaseNotesMarkdown !== 'string') return 'releaseNotesMarkdown is not a string';
   const asset = candidate.asset ?? {};
-  if (asset.name !== SETUP_ASSET_NAME) return 'asset.name does not name the installer';
+  if (!SETUP_ASSET_NAMES.includes(asset.name)) return 'asset.name does not name the installer';
   if (typeof asset.url !== 'string' || !asset.url.startsWith(ASSET_URL_PREFIX)) return 'asset.url is not an immutable release asset URL';
   if (!Number.isInteger(asset.sizeBytes) || asset.sizeBytes <= 0) return 'asset.sizeBytes is not a positive integer';
   if (!SHA256_HEX.test(asset.sha256 ?? '')) return 'asset.sha256 is not a lowercase 64-character hex digest';
@@ -150,6 +151,7 @@ if (downloadManifestRejectionReason) console.log(downloadManifestRejectionReason
 
 const downloadValues = downloadManifest ? (() => {
   const versionLabel = `v${downloadManifest.version}`;
+  const installerName = downloadManifest.asset.name;
   const sizeMb = Math.round(downloadManifest.asset.sizeBytes / 1_000_000);
   const publishedDate = new Date(downloadManifest.publishedAt).toISOString().slice(0, 10);
   return {
@@ -161,9 +163,9 @@ const downloadValues = downloadManifest ? (() => {
     homeStatTrendText: 'Verified installer',
     dlStatusChip: '<span class="status-chip">Published</span>',
     dlStatusDetail: `Verified release ${versionLabel}, published ${publishedDate}. The immutable asset URL and its SHA-256 were cross-checked against the release's own signed manifest and SHA256SUMS.txt before this page was published.`,
-    dlAction: `<a class="primary-button" id="download-button" href="${downloadManifest.asset.url}" aria-describedby="installer-status" rel="noopener">Download ${SETUP_ASSET_NAME} (${versionLabel})</a>`,
+    dlAction: `<a class="primary-button" id="download-button" href="${downloadManifest.asset.url}" aria-describedby="installer-status" rel="noopener">Download ${installerName} (${versionLabel})</a>`,
     dlVersion: escapeHtml(versionLabel),
-    dlArtifact: `${SETUP_ASSET_NAME} (${sizeMb} MB)`,
+    dlArtifact: `${installerName} (${sizeMb} MB)`,
     dlSha256: `<code>${downloadManifest.asset.sha256}</code>`,
     releaseNotesMarkdown: downloadManifest.releaseNotesMarkdown,
     // A real installer exists: the hero copy, the homepage preview chrome, product.html's

@@ -444,56 +444,84 @@ test('publishes the honest unavailable installer state when no download manifest
   assertFallbackPublished(dist);
 });
 
-test('bakes a verified download manifest into the home page, the downloads page, and the release notes', async () => {
-  const scratch = await mkdtemp(join(tmpdir(), 'ding-pbx-manifest-fixture-'));
-  const manifestPath = join(scratch, 'release-manifest.json');
+for (const installerName of ['Material-Asterisk-Setup.exe', 'Ding-PBX-Console-Setup.exe']) {
+  test(`bakes a verified ${installerName} manifest into the home page, downloads page, and release notes`, async () => {
+    const fixture = {
+      ...FIXTURE_MANIFEST,
+      asset: {
+        ...FIXTURE_MANIFEST.asset,
+        name: installerName,
+        url: new URL(installerName, FIXTURE_MANIFEST.asset.url).href,
+      },
+    };
+    const scratch = await mkdtemp(join(tmpdir(), 'ding-pbx-manifest-fixture-'));
+    const manifestPath = join(scratch, 'release-manifest.json');
+    try {
+      await writeFile(manifestPath, JSON.stringify(fixture), 'utf8');
+      const dist = await buildWithManifest(manifestPath);
+
+      assert.match(dist['index.html'], /<strong id="home-installer-status-label">Published<\/strong>/);
+      assert.match(dist['index.html'], /Verified release v9\.9\.9 · 123 MB · unsigned by permanent policy\./);
+      assert.match(dist['index.html'], new RegExp(`<a class="download-button" id="home-download-button" href="${fixture.asset.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}" rel="noopener" aria-describedby="home-installer-status-detail">Download for Windows \\(v9\\.9\\.9\\)</a>`));
+      assert.match(dist['index.html'], /<strong>v9\.9\.9<\/strong><span class="trend">Verified installer<\/span>/);
+
+      assert.match(dist['downloads.html'], /<span class="status-chip">Published<\/span>/);
+      assert.match(dist['downloads.html'], /Verified release v9\.9\.9, published 2026-01-01\./);
+      assert.ok(dist['downloads.html'].includes(`<a class="primary-button" id="download-button" href="${fixture.asset.url}" aria-describedby="installer-status" rel="noopener">Download ${installerName} (v9.9.9)</a>`));
+      assert.match(dist['downloads.html'], /<dt>Version<\/dt><dd>v9\.9\.9<\/dd>/);
+      assert.ok(dist['downloads.html'].includes(`<dt>Artifact</dt><dd>${installerName} (123 MB)</dd>`));
+      assert.match(dist['downloads.html'], new RegExp(`<dt>SHA-256</dt><dd><code>${fixture.asset.sha256}</code></dd>`));
+
+      // A real installer exists once a manifest resolves, so "planned"/"CONCEPT" must
+      // become "downloadable today"/"PREVIEW" everywhere those claims are made -- and
+      // must never leave a stale "planned" behind in the JS-rendered copy that overwrites
+      // the static HTML on load.
+      assert.match(dist['index.html'], /Material Asterisk is a Windows desktop console, downloadable today/);
+      assert.match(dist['index.html'], /<strong>Console overview<\/strong><em>PREVIEW<\/em>/);
+      assert.equal((dist['product.html'].match(/(?<!planned )desktop runtime/g) || []).length, 2);
+      assert.doesNotMatch(dist['product.html'], /planned desktop runtime/);
+      assert.match(dist['status.html'], /<small>Installer release<\/small><strong>Published v9\.9\.9<\/strong>/);
+      assert.match(dist['status.html'], /<span class="gauge" style="--value:100%;--gauge-color:var\(--good\)"/);
+      assert.match(dist['status.html'], /<span class="state-dot good"><\/span>/);
+      assert.match(dist['status.html'], /<span class="sparkline is-good"/);
+      assert.match(dist['status.html'], /<li data-state="good"><strong>Installer release published<\/strong><p>v9\.9\.9 verified against SHA256SUMS\.txt/);
+      assert.match(dist['app.js'], /'Material Asterisk is a desktop administration experience for Asterisk, downloadable today\./);
+      assert.match(dist['app.js'], /Asterisk 嘅桌面管理應用程式，而家已經可以下載/);
+      assert.doesNotMatch(dist['app.js'], /a planned desktop administration experience for Asterisk/);
+      assert.doesNotMatch(dist['app.js'], /Asterisk 嘅桌面管理計劃項目/);
+
+      // A JSON.stringify'd string is always valid inside a JS string literal (its escapes
+      // are a subset of JS's), but this proves it against the fixture's own quote and
+      // backslash characters rather than trusting that in the abstract.
+      assert.equal(dist['app.js'].includes(`const RELEASE_NOTES_MARKDOWN = ${JSON.stringify(fixture.releaseNotesMarkdown)};`), true);
+      await writeFile(join(scratch, 'app.js'), dist['app.js'], 'utf8');
+      execFileSync(process.execPath, ['--check', join(scratch, 'app.js')], { stdio: 'pipe' });
+
+      const manifest = JSON.parse(dist['build-manifest.json']);
+      assert.equal(manifest.download.resolved, true);
+      assert.equal(manifest.download.version, '9.9.9');
+      assert.equal(manifest.download.tag, fixture.tag);
+      assert.equal(manifest.download.assetUrl, fixture.asset.url);
+      assert.equal(manifest.download.sha256, fixture.asset.sha256);
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  });
+}
+
+test('rejects an unknown installer filename even when the rest of the manifest is valid', async () => {
+  const scratch = await mkdtemp(join(tmpdir(), 'ding-pbx-manifest-unknown-installer-'));
   try {
-    await writeFile(manifestPath, JSON.stringify(FIXTURE_MANIFEST), 'utf8');
+    const name = 'Unexpected-Setup.exe';
+    const invalid = {
+      ...FIXTURE_MANIFEST,
+      asset: { ...FIXTURE_MANIFEST.asset, name, url: new URL(name, FIXTURE_MANIFEST.asset.url).href },
+    };
+    const manifestPath = join(scratch, 'release-manifest.json');
+    await writeFile(manifestPath, JSON.stringify(invalid), 'utf8');
     const dist = await buildWithManifest(manifestPath);
-
-    assert.match(dist['index.html'], /<strong id="home-installer-status-label">Published<\/strong>/);
-    assert.match(dist['index.html'], /Verified release v9\.9\.9 · 123 MB · unsigned by permanent policy\./);
-    assert.match(dist['index.html'], new RegExp(`<a class="download-button" id="home-download-button" href="${FIXTURE_MANIFEST.asset.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}" rel="noopener" aria-describedby="home-installer-status-detail">Download for Windows \\(v9\\.9\\.9\\)</a>`));
-    assert.match(dist['index.html'], /<strong>v9\.9\.9<\/strong><span class="trend">Verified installer<\/span>/);
-
-    assert.match(dist['downloads.html'], /<span class="status-chip">Published<\/span>/);
-    assert.match(dist['downloads.html'], /Verified release v9\.9\.9, published 2026-01-01\./);
-    assert.match(dist['downloads.html'], new RegExp(`<a class="primary-button" id="download-button" href="${FIXTURE_MANIFEST.asset.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}" aria-describedby="installer-status" rel="noopener">Download Ding-PBX-Console-Setup\\.exe \\(v9\\.9\\.9\\)</a>`));
-    assert.match(dist['downloads.html'], /<dt>Version<\/dt><dd>v9\.9\.9<\/dd>/);
-    assert.match(dist['downloads.html'], /<dt>Artifact<\/dt><dd>Ding-PBX-Console-Setup\.exe \(123 MB\)<\/dd>/);
-    assert.match(dist['downloads.html'], new RegExp(`<dt>SHA-256</dt><dd><code>${FIXTURE_MANIFEST.asset.sha256}</code></dd>`));
-
-    // A real installer exists once a manifest resolves, so "planned"/"CONCEPT" must
-    // become "downloadable today"/"PREVIEW" everywhere those claims are made -- and
-    // must never leave a stale "planned" behind in the JS-rendered copy that overwrites
-    // the static HTML on load.
-    assert.match(dist['index.html'], /Material Asterisk is a Windows desktop console, downloadable today/);
-    assert.match(dist['index.html'], /<strong>Console overview<\/strong><em>PREVIEW<\/em>/);
-    assert.equal((dist['product.html'].match(/(?<!planned )desktop runtime/g) || []).length, 2);
-    assert.doesNotMatch(dist['product.html'], /planned desktop runtime/);
-    assert.match(dist['status.html'], /<small>Installer release<\/small><strong>Published v9\.9\.9<\/strong>/);
-    assert.match(dist['status.html'], /<span class="gauge" style="--value:100%;--gauge-color:var\(--good\)"/);
-    assert.match(dist['status.html'], /<span class="state-dot good"><\/span>/);
-    assert.match(dist['status.html'], /<span class="sparkline is-good"/);
-    assert.match(dist['status.html'], /<li data-state="good"><strong>Installer release published<\/strong><p>v9\.9\.9 verified against SHA256SUMS\.txt/);
-    assert.match(dist['app.js'], /'Material Asterisk is a desktop administration experience for Asterisk, downloadable today\./);
-    assert.match(dist['app.js'], /Asterisk 嘅桌面管理應用程式，而家已經可以下載/);
-    assert.doesNotMatch(dist['app.js'], /a planned desktop administration experience for Asterisk/);
-    assert.doesNotMatch(dist['app.js'], /Asterisk 嘅桌面管理計劃項目/);
-
-    // A JSON.stringify'd string is always valid inside a JS string literal (its escapes
-    // are a subset of JS's), but this proves it against the fixture's own quote and
-    // backslash characters rather than trusting that in the abstract.
-    assert.equal(dist['app.js'].includes(`const RELEASE_NOTES_MARKDOWN = ${JSON.stringify(FIXTURE_MANIFEST.releaseNotesMarkdown)};`), true);
-    await writeFile(join(scratch, 'app.js'), dist['app.js'], 'utf8');
-    execFileSync(process.execPath, ['--check', join(scratch, 'app.js')], { stdio: 'pipe' });
-
-    const manifest = JSON.parse(dist['build-manifest.json']);
-    assert.equal(manifest.download.resolved, true);
-    assert.equal(manifest.download.version, '9.9.9');
-    assert.equal(manifest.download.tag, FIXTURE_MANIFEST.tag);
-    assert.equal(manifest.download.assetUrl, FIXTURE_MANIFEST.asset.url);
-    assert.equal(manifest.download.sha256, FIXTURE_MANIFEST.asset.sha256);
+    assertFallbackPublished(dist);
+    assert.match(JSON.parse(dist['build-manifest.json']).download.reason, /asset\.name does not name the installer$/);
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
