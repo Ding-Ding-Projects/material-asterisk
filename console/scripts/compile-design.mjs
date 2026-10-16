@@ -423,6 +423,39 @@ function compileComponent({ name, source, componentName, extraImports = '', expo
 const controlSource = readDesign('M3 Control.dc.html');
 const consoleSource = readDesign('Asterisk Console M3.dc.html');
 
+// Native file dialogs can remain open across renderer updates. Record the music
+// upload intent on the actual input click before the operating-system picker opens.
+const fileInputReference = 'onChange="{{ ctl.onPick }}"';
+if (controlSource.markup.split(fileInputReference).length !== 2) {
+  throw new Error('The file input changed in the design reference; review picker ownership.');
+}
+controlSource.markup = controlSource.markup.replace(fileInputReference,
+  'onClick="{{ ctl.onFileOpen }}" onChange="{{ ctl.onPick }}"');
+
+// Preserve the original reference while describing the supported bounded upload API.
+// The music library accepts bare filenames under one fixed root, not h_directory.
+const musicUploadReference = "ctl('h_upload','Add an audio file','file','',{ showWhen:{ control:'h_mode', is:'files' }, accept:'audio/*',\n"
+  + "        info:'Uploads one audio file into the directory above. Asterisk plays what it finds there; nothing is transcoded on the way in.' })";
+const musicUploadSupported = "ctl('h_upload','Add an audio file','file','',{ showWhen:{ control:'h_mode', is:'files' }, accept:'.wav,.gsm,.ulaw,.alaw,.g722,.sln,.sln16,.ogg,.opus',\n"
+  + "        info:'Uploads one audio file, up to 10 MiB, to the fixed library /var/lib/asterisk/moh on the selected server. Other audio directories are not supported by this picker. Nothing is transcoded. Clear only dismisses the local selection; it does not remove server files.' })";
+if (consoleSource.script.split(musicUploadReference).length !== 2) {
+  throw new Error('The music upload control changed in the design reference; review its supported contract.');
+}
+consoleSource.script = consoleSource.script.replace(musicUploadReference, musicUploadSupported);
+// Bind ownership before a native picker can outlive its source view. Reset only this
+// input for same-file retries; vocabulary and logo callbacks keep their original behavior.
+const musicPickerReference = "o.onPick = (e) => { const f = e.target && e.target.files && e.target.files[0]; if (f && this.onFilePicked) this.onFilePicked(c, f); };\n"
+  + "      o.onClear = () => { if (this.onFileCleared) this.onFileCleared(c); };";
+if (consoleSource.script.split(musicPickerReference).length !== 2) {
+  throw new Error('The file picker handler changed in the design reference; review music retry behavior.');
+}
+// Keep the source line count stable so unrelated generated notification IDs do not move.
+consoleSource.script = consoleSource.script.replace(musicPickerReference,
+  "const music = c.id === 'h_upload' && this.bindMusicFileControl ? this.bindMusicFileControl() : null; "
+  + "o.onFileOpen = music ? (e) => music.open(e.currentTarget || e.target) : undefined; "
+  + "o.onPick = (e) => { const f = e.target && e.target.files && e.target.files[0]; if (c.id === 'h_upload') { if (e.target) e.target.value = ''; if (f && music) music.pick(e.target, f); return; } if (f && this.onFilePicked) this.onFilePicked(c, f); };\n"
+  + "      o.onClear = () => { if (c.id === 'h_upload') { if (music) music.clear(); return; } if (this.onFileCleared) this.onFileCleared(c); };");
+
 const control = compileComponent({
   name: 'c',
   source: controlSource,

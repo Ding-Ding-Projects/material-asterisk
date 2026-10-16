@@ -220,7 +220,7 @@ function Template(v: any) {
             h("span", { style: sty(`font-size:11px; color:#82D9A5; font-weight:500;`) },
               "Choose file"
             ),
-            h("input", { type: `file`, accept: v.ctl.accept, "aria-label": v.ctl.label, onChange: fn(v.ctl.onPick), style: sty(`position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;`) })
+            h("input", { type: `file`, accept: v.ctl.accept, "aria-label": v.ctl.label, onClick: fn(v.ctl.onFileOpen), onChange: fn(v.ctl.onPick), style: sty(`position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;`) })
           ),
           (v.ctl.hasFile ? h("button", { onClick: fn(v.ctl.onClear), style: sty(`align-self:flex-start; display:flex; align-items:center; gap:6px; background:transparent; border:1px solid #414942; border-radius:8px; padding:6px 12px; color:#C4CBC2; font:inherit; font-size:12px; cursor:pointer;`), className: "c-h9" },
               h("span", { style: sty(`font-size:15px;`), className: "msym" },

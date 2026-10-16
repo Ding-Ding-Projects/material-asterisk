@@ -68,7 +68,9 @@ async function withTarget(run: (h: any) => Promise<void>, { fresh = false } = {}
     });
   } finally {
     NodeProcessExecutor.prototype.execute = original;
-    await rm(root, { recursive: true, force: true });
+    // Dispatcher startup initializes its local converter directories asynchronously.
+    // Retry transient nonempty-directory races without hiding behavior assertions.
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 }
 

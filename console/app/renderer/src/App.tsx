@@ -43,7 +43,7 @@ import {
   usableMappingName,
 } from '../../../control-plane/realtime-mappings-model';
 import { PLAYABLE_EXTENSIONS, playbackMimeType, promptRows, resolvePromptRow } from './prompt-library';
-import { usableName, type MediaFile } from '../../../control-plane/media-library';
+import { MEDIA_ROOTS, usableName, type MediaFile } from '../../../control-plane/media-library';
 import { formatTakenAt, historyRows, resolveHistoryRow } from './history-backups';
 import type { HistoryEntry, ConfigDiff } from '../../../control-plane/config-history';
 import { restBrowserRows } from './rest-browser';
@@ -1359,6 +1359,14 @@ export class App extends Base {
   }
   /** The chosen file's own name, kept only for display — never its contents. */
   private pickedFileNames = new Map<string, string>();
+  /** Music selection is target-local and never shares the personal vocabulary cache. */
+  private musicFileSelection?: {
+    serverId: string;
+    name: string;
+    label: string;
+    phase: 'reading' | 'uploading' | 'uploaded' | 'rejected';
+  };
+  private musicPickerIntent?: { input: object; accept(file: File): void };
   /** The daemon lifecycle group on Deploy & servers has no reading of its own until a
    *  target is connected and its status has actually been asked for once. */
   private daemonStatusLine = 'Unknown — no target connected yet.';
@@ -1673,21 +1681,65 @@ export class App extends Base {
 
   /** Read by the compiled `file` control kind for the file-picker's own label. */
   fileControlName = (ctl: { id: string }): string => {
+    if (ctl.id === 'h_upload') return this.musicFileSelection?.serverId === this.target.id
+      ? this.musicFileSelection.label : 'No audio file chosen';
     const named = this.pickedFileNames.get(ctl.id);
     if (ctl.id === 'logo_pick') return named ?? 'No picture chosen';
+    if (ctl.id !== 'va_file') return 'No file chosen';
     if (named) return named;
     const status = vocabularyStatus(this.vocabStorage);
     return status.replacementCount > 0 ? `${status.replacementCount} replacement(s) loaded` : 'No file chosen';
   };
 
-  fileControlHasFile = (ctl: { id: string }): boolean => (ctl.id === 'logo_pick'
-    ? currentChoice(this.durableStorage.storage).kind === 'custom'
-    : vocabularyStatus(this.vocabStorage).replacementCount > 0);
+  fileControlHasFile = (ctl: { id: string }): boolean => {
+    if (ctl.id === 'logo_pick') return currentChoice(this.durableStorage.storage).kind === 'custom';
+    if (ctl.id === 'h_upload') return this.musicFileSelection?.serverId === this.target.id;
+    return ctl.id === 'va_file' && vocabularyStatus(this.vocabStorage).replacementCount > 0;
+  };
 
-  /** The file's bytes never leave this process: read locally, validated by the pure
-   *  loader in `personal-vocabulary.ts`, and — only on success — cached locally. */
+  /** Keep the opening intent on the app, because React may replace an input's change
+   * handler while its native picker is open. A new render cannot retarget that intent. */
+  bindMusicFileControl = (): { open(input: object): void; pick(input: object, file: File): void; clear(): void } => {
+    const target = this.target;
+    const serverId = target.id;
+    const state = this.state as { screen?: string; values?: Record<string, unknown> };
+    const screen = state.screen;
+    const mode = state.values?.h_mode ?? 'files';
+    const current = () => {
+      const next = this.state as { screen?: string; values?: Record<string, unknown> };
+      return this.target === target && this.target.id === serverId && screen === 'moh' && mode === 'files'
+        && next.screen === screen && (next.values?.h_mode ?? 'files') === mode;
+    };
+    const reject = () => this.fire('Music file not uploaded', 'The selected server or music view changed. Choose the file again from Music on hold.');
+    const accept = (file: File) => {
+      if (!current()) { reject(); return; }
+      this.onFilePicked({ id: 'h_upload' }, file);
+    };
+    return {
+      open: (input) => {
+        this.musicPickerIntent = undefined;
+        if (!current()) { reject(); return; }
+        this.musicPickerIntent = { input, accept };
+      },
+      pick: (input, file) => {
+        const intent = this.musicPickerIntent;
+        this.musicPickerIntent = undefined;
+        if (!intent || intent.input !== input) { reject(); return; }
+        intent.accept(file);
+      },
+      clear: () => { if (current()) this.onFileCleared({ id: 'h_upload' }); },
+    };
+  };
+
+  /** Route each file control to its own contract. Vocabulary bytes stay local,
+   * validated by personal-vocabulary.ts and cached only after a successful load. */
   onFilePicked = (ctl: { id: string }, file: File): void => {
     if (ctl.id === 'logo_pick') { this.pickLogo(file); return; }
+    if (ctl.id === 'h_upload') { void this.uploadMusicFile(file); return; }
+    if (ctl.id !== 'va_file') {
+      this.fire('File not loaded', 'This file control has no supported upload action.');
+      return;
+    }
     this.pickedFileNames.set(ctl.id, `${file.name} — reading`);
     this.forceUpdate();
     const apply = (text: string): void => {
@@ -1732,12 +1784,114 @@ export class App extends Base {
       this.refreshLogoStatus();
       return;
     }
+    if (ctl.id === 'h_upload') {
+      this.musicPickerIntent = undefined;
+      const selection = this.musicFileSelection;
+      if (!selection || selection.serverId !== this.target.id) return;
+      if (selection.phase === 'uploading') {
+        this.fire('Upload in progress', 'Wait for the target to answer before clearing this file selection.');
+        return;
+      }
+      this.musicFileSelection = undefined;
+      this.forceUpdate();
+      this.toast('Local music file selection cleared. No file was removed from the server.');
+      return;
+    }
+    if (ctl.id !== 'va_file') {
+      this.fire('File not cleared', 'This file control has no supported clear action.');
+      return;
+    }
     const result = clearVocabulary(this.vocabStorage);
     this.pickedFileNames.delete(ctl.id);
     this.forceUpdate();
     this.onUserMutation('vocabulary-clear');
     this.toast(result.status);
   };
+
+  /** Use the existing bounded media API. It alone validates audio headers and confirms
+   * the written size. This picker cannot write arbitrary directories or delete media. */
+  private async uploadMusicFile(file: File): Promise<void> {
+    const sourceState = this.state as { screen?: string; values?: Record<string, unknown> };
+    if (sourceState.screen !== 'moh' || (sourceState.values?.h_mode ?? 'files') !== 'files') {
+      this.fire('Music file not uploaded', 'Open Music on hold in files mode before choosing an audio file.');
+      return;
+    }
+    if (!this.target.connected || !this.target.id) {
+      this.fire('Music file not uploaded', 'Connect to a server before uploading music on hold.');
+      return;
+    }
+    if (this.musicFileSelection?.phase === 'reading' || this.musicFileSelection?.phase === 'uploading') {
+      this.fire('Upload in progress', 'Wait for the current music file upload to finish before choosing another file.');
+      return;
+    }
+    const extension = usableName(file.name);
+    if (extension === undefined) {
+      this.fire('Music file not uploaded', 'Choose a bare filename in wav, gsm, ulaw, alaw, g722, sln, sln16, ogg or opus format.');
+      return;
+    }
+    // Match MediaLibrary's existing 10 MiB ceiling before reading any file bytes.
+    if (!Number.isSafeInteger(file.size) || file.size <= 0 || file.size > 10 * 1024 * 1024) {
+      this.fire('Music file not uploaded', 'Choose a nonempty audio file no larger than 10 MiB.');
+      return;
+    }
+    const sourceTarget = this.target;
+    const sourceScreen = sourceState.screen;
+    const sourceMode = sourceState.values?.h_mode ?? 'files';
+    const selection = {
+      serverId: this.target.id, name: file.name, label: `${file.name} (reading)`, phase: 'reading' as const,
+    };
+    this.musicFileSelection = selection;
+    this.forceUpdate();
+    const stillSelected = () => this.musicFileSelection === selection
+      && this.target === sourceTarget && this.target.id === selection.serverId && this.target.connected;
+    try {
+      const contentBase64 = await new Promise<string>((resolve, reject) => {
+        if (typeof FileReader === 'undefined') { reject(new Error('This renderer has no local file reader.')); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+          const match = /^data:[^,]*;base64,([A-Za-z0-9+/]+={0,2})$/u.exec(dataUrl);
+          if (!match) { reject(new Error('The selected file could not be encoded for upload.')); return; }
+          resolve(match[1]!);
+        };
+        reader.onerror = () => reject(new Error('The selected file could not be read from disk.'));
+        reader.onabort = () => reject(new Error('Reading the selected file was cancelled.'));
+        reader.readAsDataURL(file);
+      });
+      const currentState = this.state as { screen?: string; values?: Record<string, unknown> };
+      if (!stillSelected() || currentState.screen !== sourceScreen
+        || (currentState.values?.h_mode ?? 'files') !== sourceMode) {
+        if (this.musicFileSelection === selection) this.musicFileSelection = undefined;
+        return;
+      }
+      this.musicFileSelection.phase = 'uploading';
+      this.musicFileSelection.label = `${file.name} (uploading)`;
+      this.forceUpdate();
+      const response = await this.request('media.upload', {
+        serverId: selection.serverId,
+        payload: { root: 'musicOnHold', name: file.name, contentBase64 },
+      });
+      if (!response?.ok) throw new Error(response?.message ?? 'The control plane did not answer.');
+      const landed = response.data as Partial<MediaFile> | undefined;
+      if (landed?.name !== file.name || landed.path !== `${MEDIA_ROOTS.musicOnHold}/${file.name}`
+        || landed.extension !== extension || landed.bytes !== file.size) {
+        throw new Error('The control plane did not confirm the expected music file and size.');
+      }
+      if (this.musicFileSelection !== selection) return;
+      this.musicFileSelection.phase = 'uploaded';
+      this.musicFileSelection.label = `${file.name} (uploaded)`;
+      if (!stillSelected()) return;
+      delete this.readings.moh;
+      this.fire('Music file uploaded', `${landed.name} was confirmed as ${landed.bytes} bytes in ${MEDIA_ROOTS.musicOnHold} on ${this.target.label}.`);
+    } catch (error) {
+      if (this.musicFileSelection !== selection) return;
+      this.musicFileSelection.phase = 'rejected';
+      this.musicFileSelection.label = `${file.name} (not uploaded)`;
+      if (stillSelected()) this.fire('Music file not uploaded', error instanceof Error ? error.message : String(error));
+    } finally {
+      this.forceUpdate();
+    }
+  }
 
   // ---------------------------------------------------------------- daemon lifecycle
 

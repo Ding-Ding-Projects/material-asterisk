@@ -84,7 +84,8 @@ async function compare(before, after) {
 const AUDITED_BINDING_COUNTS = Object.freeze({
   // The raw compiler emits 227/15/10 for click/change/input. The fixed additions
   // below are individually audited extension contracts, never derived at runtime.
-  onClick: 212 + 3 + 1 + 6 + 5 + 8,
+  // One file-input click captures music upload ownership before the native picker opens.
+  onClick: 212 + 3 + 1 + 6 + 5 + 8 + 1,
   onChange: 10 + 1 + 1 + 1 + 3 + 1,
   onInput: 10 + 1 + 1,
   onContextMenu: 9,

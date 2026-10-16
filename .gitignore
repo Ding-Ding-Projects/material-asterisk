@@ -47,7 +47,7 @@ compile_commands.json
 .cache/
 
 # Ding PBX Console generated dependencies and build outputs
-/console/node_modules/
+/console/node_modules
 /console/dist/
 /console/dist-electron/
 /console/site/dist/
@@ -81,3 +81,10 @@ ralph/logs/
 # generator lands; route any future copy through the Cheap LFS/cloud transfer
 # path rather than committing it to ordinary Git.
 console/inventories/ui-smoke/interaction-manifest.json
+
+# Generated compiler caches only; preserve adjacent test evidence.
+/.test-tmp/node-compile-cache/
+/.test-tmp/tsx-1000/
+/.tmp/tsx-1000/
+/test-tmp/node-compile-cache/
+/test-tmp/tsx-1000/

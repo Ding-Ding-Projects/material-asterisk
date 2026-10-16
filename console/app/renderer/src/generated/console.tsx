@@ -3126,8 +3126,8 @@ const SCREENS = {
       // revealed only for the mode that uses them.
       ctl('h_directory','Audio directory','text','/var/lib/asterisk/moh',{ showWhen:{ control:'h_mode', is:'files' },
         info:'The directory Asterisk plays hold audio from. Written to musiconhold.conf as directory.' }),
-      ctl('h_upload','Add an audio file','file','',{ showWhen:{ control:'h_mode', is:'files' }, accept:'audio/*',
-        info:'Uploads one audio file into the directory above. Asterisk plays what it finds there; nothing is transcoded on the way in.' }),
+      ctl('h_upload','Add an audio file','file','',{ showWhen:{ control:'h_mode', is:'files' }, accept:'.wav,.gsm,.ulaw,.alaw,.g722,.sln,.sln16,.ogg,.opus',
+        info:'Uploads one audio file, up to 10 MiB, to the fixed library /var/lib/asterisk/moh on the selected server. Other audio directories are not supported by this picker. Nothing is transcoded. Clear only dismisses the local selection; it does not remove server files.' }),
       // `custom` in musiconhold.conf runs a program and reads its output, so what it needs
       // is a command rather than a file. Offering an upload here would be the wrong
       // control for the mode, however much it looks like the helpful one.
@@ -5042,8 +5042,8 @@ class ConsoleShell extends DCLogic {
       o.accept = c.accept || '';
       o.fileName = (this.fileControlName ? this.fileControlName(c) : (v || 'No file chosen'));
       o.hasFile = !!(this.fileControlHasFile ? this.fileControlHasFile(c) : v);
-      o.onPick = (e) => { const f = e.target && e.target.files && e.target.files[0]; if (f && this.onFilePicked) this.onFilePicked(c, f); };
-      o.onClear = () => { if (this.onFileCleared) this.onFileCleared(c); };
+      const music = c.id === 'h_upload' && this.bindMusicFileControl ? this.bindMusicFileControl() : null; o.onFileOpen = music ? (e) => music.open(e.currentTarget || e.target) : undefined; o.onPick = (e) => { const f = e.target && e.target.files && e.target.files[0]; if (c.id === 'h_upload') { if (e.target) e.target.value = ''; if (f && music) music.pick(e.target, f); return; } if (f && this.onFilePicked) this.onFilePicked(c, f); };
+      o.onClear = () => { if (c.id === 'h_upload') { if (music) music.clear(); return; } if (this.onFileCleared) this.onFileCleared(c); };
     }
     /* Escape hatch for controls whose action is a real side effect (starting a daemon,
      * clearing a local cache) rather than a value the console merely remembers. `c.action`
